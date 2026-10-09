@@ -1,4 +1,4 @@
-# 粉笔网页版油猴脚本合集 粉笔脚本君出品
+# 粉笔网页版油猴脚本合集
 小红书：粉笔脚本君
 作者：vvcy（[ScriptCat 主页](https://scriptcat.org/zh-CN/users/215061)）
 
