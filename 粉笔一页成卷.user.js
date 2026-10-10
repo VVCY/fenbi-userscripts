@@ -140,7 +140,7 @@
     };
     var DEFAULTS = {
         enabled: true,
-        fontSize: 24,
+        fontSize: 22,
         lineHeight: 1.6,
         cols: 'auto',             // 恢复默认时列数自动
         qSpacing: 18,
@@ -1586,8 +1586,12 @@
                 fold.textContent = panel.classList.contains('fp-ts-collapsed') ? '+' : '\u2212';
             }
         });
-        var head = el('div', { 'class': 'fp-ts-head' },
-            [el('span', { text: '粉笔一页成卷 v' + VERSION }), fold]);
+        var head = el('div', { 'class': 'fp-ts-head' }, [
+            el('span', { text: '粉笔一页成卷 ' }, [
+                el('span', { style: 'color:#94a3b8;font-style:italic', text: '粉笔脚本君出品' })
+            ]),
+            fold
+        ]);
 
         // 启停
         var sw = el('input', {
