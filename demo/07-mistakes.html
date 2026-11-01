@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>演示 07 · 粉笔错题本（按自己的错因分组）</title>
+<style>
+  :root{
+    --blue:#2f6bff;
+    --blue-2:#0052D9;
+    --ink:#1b2540;
+    --ink-2:#44506b;
+    --ink-3:#8c97ad;
+    --line:#e4e9f2;
+    --green:#20a464;
+  }
+  @property --u{syntax:"<length>";inherits:true;initial-value:1px}
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    padding:34px 20px 54px;background:#EEF2F7;color:#32343A;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:960px;margin:0 auto}
+
+  /* 被作品集页面以 iframe 嵌入时：去掉标题与留白，画面铺满整块 */
+  body.embed{padding:0;background:transparent}
+  body.embed .head{display:none}
+  body.embed .wrap{max-width:none;margin:0}
+  body.embed .scene{
+    position:fixed;inset:0;aspect-ratio:auto;border-radius:0;border:0;box-shadow:none;
+  }
+
+  .head{margin:0 0 16px}
+  .head h1{font-size:19px;font-weight:600;margin:0 0 7px;letter-spacing:-.01em}
+  .head p{font-size:13px;line-height:1.7;color:#636E92;margin:0}
+  .head b{color:var(--blue);font-weight:600}
+
+  .scene{
+    position:relative;aspect-ratio:16/10;border-radius:16px;overflow:hidden;
+    background:#fff;border:1px solid rgba(50,52,58,.08);
+    box-shadow:0 1px 2px rgba(50,52,58,.05),0 18px 40px -24px rgba(50,52,58,.5);
+  }
+  .stage{position:absolute;inset:0;container-type:size}
+  .stage-in{position:absolute;inset:0;font-size:3.15cqw;--u:1em;background:#f7f8fb;overflow:hidden}
+
+  /* ---------- 做题页 ---------- */
+  .appbar{
+    position:absolute;top:0;left:0;right:0;height:2.05em;z-index:4;
+    display:flex;align-items:center;gap:.7em;padding:0 1em;background:#fff;
+    border-bottom:.055em solid #eef1f6;
+  }
+  .appbar .back{font-size:.43em;color:var(--blue)}
+  .appbar .ttl{font-size:.44em;color:#32343A;font-weight:500}
+  .appbar .cr{font-size:.35em;color:#9aa3b2;margin-left:auto}
+
+  .qwrap{position:absolute;left:4.1em;right:2.6em;top:2.05em;padding:1.5em 0 0}
+  .qhd{position:relative;display:flex;align-items:center;gap:.5em;margin-bottom:.55em}
+  .qn{font-size:.6em;font-weight:700;color:var(--blue)}
+  .qtag{font-size:.36em;color:#7b8598;background:#f1f4f9;border-radius:.3em;padding:.22em .55em}
+  .favbtn{
+    position:absolute;right:calc(100% + .36em);top:-.06em;
+    font-size:.4em;line-height:1.2;white-space:nowrap;font-family:inherit;
+    border:.033em solid var(--blue);border-radius:.24em;background:#fff;color:var(--blue);
+    padding:.3em .7em;cursor:pointer;
+  }
+  .favbtn.hot{background:#eef3fb}
+  .stem{font-size:.53em;line-height:1.95;color:#1b2540;text-align:justify}
+  .stem u{text-decoration:none;border-bottom:.06em solid rgba(47,107,255,.45)}
+  .opts{margin-top:.55em;display:flex;flex-direction:column;gap:.2em}
+  .op{display:flex;gap:.4em;align-items:flex-start;border:.033em solid #e6ebf4;border-radius:.22em;padding:.28em .5em}
+  .op b{flex:none;font-size:.4em;font-weight:600;color:#5b6580;width:.8em}
+  .op span{font-size:.44em;line-height:1.6;color:#3c464f}
+
+  /* ---------- 遮罩 / 弹窗 ---------- */
+  .mask{position:absolute;inset:0;background:rgba(0,0,0,.45);z-index:18;opacity:0}
+  .dlg{
+    position:absolute;left:50%;top:50%;width:17em;z-index:20;opacity:0;
+    transform:translate(-50%,-46%) scale(.96);transform-origin:50% 50%;
+    background:#fff;border-radius:.42em;padding:.75em .85em .8em;
+    box-shadow:0 .4em 1.6em rgba(20,28,48,.3);
+  }
+  .dtitle{font-size:.53em;font-weight:600;color:#1b2540}
+  .dstem{
+    margin-top:.5em;font-size:.4em;line-height:1.8;color:#5b6580;
+    background:#f6f8fc;border-radius:.24em;padding:.45em .6em;
+  }
+  .row{display:flex;align-items:center;gap:.5em;margin-top:.55em}
+  .lb{flex:none;width:calc(1.75*var(--u));font-size:.4em;font-weight:600;color:var(--ink-2)}
+  .inp{flex:1;font-size:.38em;color:#1b2540;border:.033em solid #d6dce8;border-radius:.22em;padding:.42em .55em;white-space:nowrap;overflow:hidden}
+  .abcd{display:flex;gap:.32em}
+  .abcd i{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:calc(1.12*var(--u));height:calc(1.12*var(--u));
+    font-size:.44em;font-style:normal;font-weight:600;color:#44506b;
+    border:.033em solid #d6dce8;border-radius:50%;background:#fff;
+  }
+  .abcd i.on{background:var(--blue);border-color:var(--blue);color:#fff}
+  .nrow{margin-top:.6em}
+  .nlb{font-size:.38em;font-weight:600;color:var(--ink-2)}
+  .note{
+    margin-top:.3em;min-height:2.9em;border:.033em solid #d6dce8;border-radius:.22em;
+    padding:.4em .55em;font-size:.4em;line-height:1.75;color:#1b2540;
+  }
+  .note.focus{border-color:var(--blue)}
+  .caret{display:inline-block;width:.05em;height:1em;background:var(--blue);vertical-align:-.12em;margin-left:.05em}
+  .dfoot{display:flex;justify-content:flex-end;gap:.4em;margin-top:.7em}
+  .gbtn{
+    font-size:.4em;font-family:inherit;color:#243;border:.033em solid #d6dce8;background:#f7f9fc;
+    border-radius:.26em;padding:.42em .8em;cursor:pointer;white-space:nowrap;
+  }
+  .gbtn.main{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+  .gbtn.on{background:var(--blue);border-color:var(--blue);color:#fff}
+
+  /* ---------- 底部抽屉 ---------- */
+  .sheet{
+    position:absolute;left:0;right:0;bottom:0;z-index:24;background:#fff;
+    border-radius:.5em .5em 0 0;box-shadow:0 -.3em 1.4em rgba(0,0,0,.22);
+    transform:translateY(101%);padding:0 0 .7em;
+  }
+  .handle{width:1.3em;height:.13em;background:#ddd;border-radius:.1em;margin:.34em auto 0}
+  .shead{display:flex;align-items:center;justify-content:space-between;padding:.55em .8em .2em}
+  .stitle{font-size:.5em;font-weight:600;color:#1b2540}
+  .stip{font-size:.34em;color:#8c97ad;padding:0 .8em .5em;line-height:1.6}
+  .stree{display:flex;gap:.2em;padding:0 .55em}
+  .scol{flex:1;min-width:0}
+  .snode{display:flex;align-items:center;gap:.24em;padding:.28em .5em;border-radius:.2em;cursor:pointer}
+  .snode:hover{background:#f5f7fa}
+  .snode.on{background:#eef3fb;box-shadow:inset .07em 0 0 var(--blue)}
+  .snode .arw{flex:none;width:.5em;font-size:.26em;color:#bbb;text-align:center}
+  .snode .nm{flex:1;font-size:.38em;color:#333;line-height:1.3}
+  .snode .cnt{flex:none;font-size:.32em;color:#8c97ad;background:#f0f0f0;border-radius:.4em;padding:.05em .4em;min-width:1.2em;text-align:center}
+  .snode .add{
+    flex:none;width:calc(.62*var(--u));height:calc(.62*var(--u));line-height:calc(.58*var(--u));
+    text-align:center;border:.033em solid #d6dce8;border-radius:.18em;color:var(--blue);
+    font-size:.36em;background:#fff;
+  }
+  .snode.sub{padding-left:1.2em}
+  .snode.fresh{animation:none;background:#eef7f1}
+  .snew{
+    display:flex;align-items:center;gap:.45em;margin:.5em .8em 0;padding:.45em .55em;
+    background:#f6f8fc;border:.033em solid #e4e9f2;border-radius:.24em;opacity:0;
+  }
+  .snew .snlbl{font-size:.36em;color:var(--ink-2);white-space:nowrap}
+  .sninp{flex:1;font-size:.38em;color:#1b2540;border-bottom:.033em solid var(--blue);padding:.1em .05em;min-height:1.2em}
+  .snew .sok{flex:none;font-size:.33em;color:#8c97ad;border:.033em solid #d6dce8;background:#fff;border-radius:.2em;padding:.3em .5em}
+
+  /* ---------- toast ---------- */
+  .toast{
+    position:absolute;left:50%;bottom:.9em;z-index:26;transform:translate(-50%,.4em);
+    background:rgba(20,28,48,.92);color:#fff;padding:.5em .8em;border-radius:.36em;
+    font-size:.4em;line-height:1.4;opacity:0;white-space:nowrap;
+  }
+
+  /* ---------- 错题本整页 ---------- */
+  .nb{
+    position:absolute;inset:0;z-index:30;background:#f4f6fb;opacity:0;
+    display:flex;flex-direction:column;padding:.75em 1em 0;
+  }
+  .nhead{display:flex;align-items:center;justify-content:space-between;gap:.6em}
+  .nhead h2{font-size:.55em;font-weight:600;margin:0;color:#1b2540}
+  .ntools{display:flex;gap:.24em;flex-wrap:nowrap}
+  .ntools span{
+    font-size:.31em;color:#243;border:.033em solid #d6dce8;background:#f7f9fc;
+    border-radius:.26em;padding:.42em .55em;white-space:nowrap;
+  }
+  .ntools span.main{background:var(--blue);border-color:var(--blue);color:#fff}
+  .ntools span.on{background:var(--blue);border-color:var(--blue);color:#fff}
+  .nsub{font-size:.3em;color:#66718a;margin-top:.35em}
+  .nsub i{font-style:italic;color:#999;margin-left:.5em}
+  .nbody{flex:1;display:flex;gap:.7em;margin-top:.55em;min-height:0;padding-bottom:.7em}
+
+  .gpanel{
+    flex:none;width:8.4em;background:#fff;border-radius:.3em;padding:.3em .2em;
+    box-shadow:0 .1em .5em rgba(30,50,90,.06);align-self:flex-start;
+  }
+  .kp{display:flex;align-items:center;padding:.26em .38em;border-radius:.16em}
+  .kp.on{background:#eef3fb;box-shadow:inset .1em 0 0 var(--blue)}
+  .kp .ka{
+    flex:none;display:inline-flex;align-items:center;justify-content:center;
+    width:calc(.66*var(--u));height:calc(.66*var(--u));border-radius:.14em;background:#f0f2f6;
+    color:#6b7482;font-size:.3em;margin-right:.3em;
+  }
+  .kp .ka.off{color:#c3cad8}
+  .kp .kn{flex:1;font-size:.38em;font-weight:700;color:#3c464f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .kp .knum{flex:none;font-size:.3em;color:#8a9095;margin-left:.3em}
+  .kp .kmore{
+    flex:none;font-size:.3em;color:#636e92;border:.033em solid #dee2ea;border-radius:.5em;
+    padding:.1em .4em;margin-left:.3em;background:#fff;
+  }
+  .kpc{padding-left:.9em}
+  .kpc .kp .kn{font-weight:400}
+
+  .qlist{flex:1;min-width:0;display:flex;flex-direction:column;gap:.5em;overflow:hidden}
+  .card{
+    background:#fff;border-radius:.3em;padding:.5em .6em;
+    box-shadow:0 .07em .4em rgba(30,50,90,.06);
+  }
+  .card .meta{font-size:.3em;color:#8c97ad;margin-bottom:.35em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card .qmain{display:flex;gap:.55em;align-items:flex-start}
+  .card .qbody{flex:1;min-width:0}
+  .card .qstem{font-size:.42em;line-height:1.85;color:#1b2540;text-align:justify}
+  .card .qopts{margin-top:.3em;display:flex;flex-direction:column;gap:.12em}
+  .card .qopt{
+    font-size:.36em;line-height:1.55;color:#5b6580;border:.033em solid #e2e7f0;
+    border-radius:.18em;padding:.16em .4em;
+  }
+  .card .qopt.right{border-color:var(--green);color:var(--green)}
+  .card .qopt.wrong{border-color:#ff5a5f;color:#ff5a5f}
+  .card .note-col{flex:none;width:5.6em}
+  .card .note-col .nlbl{font-size:.3em;font-weight:600;color:var(--ink-2);margin-bottom:.2em}
+  .card .note-col .ntext{
+    font-size:.36em;line-height:1.75;color:#1b2540;background:#f6f8fc;
+    border:.033em solid #e4e9f2;border-radius:.2em;padding:.35em .45em;
+  }
+  .card.dim{opacity:.55}
+  .card.gone{opacity:0}
+
+  /* ---------- 云端同步卡 ---------- */
+  .sync{
+    position:absolute;right:1em;bottom:1em;z-index:32;opacity:0;
+    background:#fff;border-radius:.3em;padding:.5em .7em;
+    box-shadow:0 .2em .9em rgba(20,28,48,.2);display:flex;align-items:center;gap:.5em;
+  }
+  .sync .ck{
+    flex:none;width:1.1em;height:1.1em;border-radius:50%;background:#eaf7f0;color:var(--green);
+    font-size:.36em;display:flex;align-items:center;justify-content:center;font-weight:700;
+  }
+  .sync .st{font-size:.4em;color:#1b2540;font-weight:600}
+  .sync .sd{font-size:.3em;color:#8c97ad;margin-top:.1em}
+
+  /* ---------- 胶囊 ---------- */
+  .chip{position:absolute;left:1em;bottom:.85em;z-index:40;opacity:0}
+  .chip .tx{
+    display:flex;align-items:center;gap:.4em;font-size:.4em;line-height:1;
+    padding:.62em .85em;border-radius:2em;white-space:nowrap;
+    background:rgba(255,255,255,.97);border:.055em solid #E9EDF4;
+    box-shadow:0 .18em .6em -.2em rgba(50,52,58,.3);
+  }
+  .chip .d{width:.36em;height:.36em;border-radius:50%;background:var(--blue);flex:none}
+  .chip.ok .d{background:var(--green)}
+  .chip .tx b{font-weight:600;color:#32343A}
+
+  /* ---------- 光标 / 涟漪 ---------- */
+  .cursor{position:absolute;left:0;top:0;width:.8em;height:.8em;z-index:46;pointer-events:none;opacity:0}
+  .cursor svg{width:100%;height:100%;display:block;filter:drop-shadow(0 .05em .1em rgba(0,0,0,.28))}
+  .ring{
+    position:absolute;left:0;top:0;width:.7em;height:.7em;border-radius:50%;
+    border:.07em solid rgba(47,107,255,.55);z-index:45;opacity:0;pointer-events:none;
+  }
+  .flash{position:absolute;inset:0;background:#fff;z-index:60;opacity:0;pointer-events:none}
+
+  .cap{display:flex;gap:26px;flex-wrap:wrap;margin:14px 2px 0;font-size:13px;color:#636E92}
+  .cap em{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;vertical-align:1px}
+  .cap .a em{background:var(--blue)}
+  .cap .b em{background:var(--green)}
+</style>
+</head>
+<body>
+<script>if(location.search.indexOf('embed')>-1)document.body.classList.add('embed');</script>
+
+<div class="wrap">
+  <div class="head">
+    <h1>演示 07 · 粉笔错题本（按自己的错因分组）</h1>
+    <p>官网错题本只能按<b>题型</b>归类，可你错在哪自己最清楚——点「收藏错题」抓下来源/答案、写一句笔记，再把它丢进<b>自己建的错因分类</b>（最多四级，随时再加子类）；错题本页面点分类就筛，换台设备也还在。</p>
+  </div>
+
+  <div class="scene">
+    <div class="stage">
+      <div class="stage-in" id="scene">
+
+        <!-- 做题页 -->
+        <div class="appbar">
+          <span class="back">‹ 返回</span>
+          <span class="ttl">2026年国考《行测》题（网友回忆版）</span>
+          <span class="cr">第 37 / 40 题</span>
+        </div>
+        <div class="qwrap">
+          <div class="qhd">
+            <button class="favbtn" id="favbtn">收藏错题</button>
+            <span class="qn">37</span>
+            <span class="qtag">判断推理 · 定义判断</span>
+          </div>
+          <div class="stem"><u>赶路效应</u>是指在长途出行中，人们为了避免中途停留带来的「进度中断感」，宁愿忍受身体的不适也不愿停下休息的现象。根据上述定义，下列属于赶路效应的是：</div>
+          <div class="opts">
+            <div class="op"><b>A</b><span>小李自驾回老家，明知腰疼仍在服务区只停 5 分钟就继续上路</span></div>
+            <div class="op"><b>B</b><span>小王为了赶早班机，提前一晚住到机场附近的酒店</span></div>
+            <div class="op"><b>C</b><span>小张自驾途中遇暴雨，主动在县城住了一晚再走</span></div>
+            <div class="op"><b>D</b><span>小赵每天通勤两小时，习惯了在地铁上补觉</span></div>
+          </div>
+        </div>
+
+        <!-- 收藏确认弹窗 -->
+        <div class="mask" id="mask"></div>
+        <div class="dlg" id="dlg">
+          <div class="dtitle">收藏本题（信息可自行补充）</div>
+          <div class="dstem">「赶路效应」是指在长途出行中，人们为了避免中途停留带来的「进度中断感」，宁愿忍受身体的不适也不愿停下休息…</div>
+          <div class="row"><span class="lb">来源</span><div class="inp">2026年国考《行测》题（网友回忆版）第37题</div></div>
+          <div class="row"><span class="lb">正确答案</span><div class="abcd"><i class="on">A</i><i>B</i><i>C</i><i>D</i></div></div>
+          <div class="row"><span class="lb">你的答案</span><div class="abcd"><i>A</i><i>B</i><i>C</i><i class="on" id="abcD">D</i></div></div>
+          <div class="nrow">
+            <span class="nlb">笔记</span>
+            <div class="note" id="notebox"><span id="typ1"></span><span class="caret" id="caret1"></span></div>
+          </div>
+          <div class="dfoot"><span class="gbtn">取消</span><span class="gbtn main" id="dok">确认收藏</span></div>
+        </div>
+
+        <!-- 分组抽屉 -->
+        <div class="sheet" id="sheet">
+          <div class="handle"></div>
+          <div class="shead">
+            <div class="stitle">收藏到哪个分组？</div>
+            <span class="gbtn">取消</span>
+          </div>
+          <div class="stip">点分组名 = 收藏到该分组；点右侧「+」选中为当前节点，可在其下新建子分组（最多 4 级）</div>
+          <div class="stree">
+            <div class="scol">
+              <div class="snode" id="nKg"><span class="arw">▾</span><span class="nm">知识盲区</span><span class="cnt">12</span><span class="add">+</span></div>
+              <div class="snode sub"><span class="arw">·</span><span class="nm">定义判断</span><span class="cnt">4</span><span class="add">+</span></div>
+              <div class="snode sub"><span class="arw">·</span><span class="nm">逻辑填空</span><span class="cnt">5</span><span class="add">+</span></div>
+              <div class="snode sub"><span class="arw">·</span><span class="nm">资料分析</span><span class="cnt">3</span><span class="add">+</span></div>
+              <div class="snode"><span class="arw">·</span><span class="nm">时间不够</span><span class="cnt">5</span><span class="add">+</span></div>
+            </div>
+            <div class="scol">
+              <div class="snode" id="nSw"><span class="arw">▸</span><span class="nm">审题失误</span><span class="cnt">6</span><span class="add" id="plusSw">+</span></div>
+              <div class="snode sub" id="nNew" style="display:none"><span class="arw">·</span><span class="nm">字面硬套</span><span class="cnt">0</span><span class="add">+</span></div>
+              <div class="snode"><span class="arw">·</span><span class="nm">粗心计算</span><span class="cnt">1</span><span class="add">+</span></div>
+              <div class="snode"><span class="arw">·</span><span class="nm">未分组</span><span class="cnt">0</span><span class="add">+</span></div>
+            </div>
+          </div>
+          <div class="snew" id="snew">
+            <span class="snlbl">在「审题失误」下新建子分类</span>
+            <span class="sninp" id="typ2"></span>
+            <span class="sok">回车确认</span>
+          </div>
+        </div>
+
+        <!-- toast -->
+        <div class="toast" id="toast">已收藏到「审题失误 / 字面硬套」</div>
+
+        <!-- 错题本整页 -->
+        <div class="nb" id="nb">
+          <div class="nhead">
+            <h2>我的错题本（25）</h2>
+            <div class="ntools">
+              <span>字体</span><span id="tAns">显示答案</span><span>导出 JSON</span><span>合并导入 JSON</span><span>立即同步</span><span>从远端拉取</span><span>WebDAV 设置</span><span class="main">返回刷题</span>
+            </div>
+          </div>
+          <div class="nsub">WebDAV：dav.jianguoyun.com · 路径 /fenbi/mistakes.json<i>粉笔脚本君出品</i></div>
+          <div class="nbody">
+            <div class="gpanel">
+              <div class="kp all on" id="kpAll"><span class="ka off">·</span><span class="kn">全部</span><span class="knum">25 道</span><span class="kmore">⋯</span></div>
+              <div class="kpc"><div class="kp"><span class="ka off">·</span><span class="kn">未分组</span><span class="knum">0 道</span><span class="kmore">⋯</span></div></div>
+              <div class="kp"><span class="ka">▾</span><span class="kn">知识盲区</span><span class="knum">12 道</span><span class="kmore">⋯</span></div>
+              <div class="kpc"><div class="kp"><span class="ka off">·</span><span class="kn">定义判断</span><span class="knum">4 道</span><span class="kmore">⋯</span></div></div>
+              <div class="kpc"><div class="kp"><span class="ka off">·</span><span class="kn">逻辑填空</span><span class="knum">5 道</span><span class="kmore">⋯</span></div></div>
+              <div class="kpc"><div class="kp"><span class="ka off">·</span><span class="kn">资料分析</span><span class="knum">3 道</span><span class="kmore">⋯</span></div></div>
+              <div class="kp"><span class="ka off">·</span><span class="kn">时间不够</span><span class="knum">5 道</span><span class="kmore">⋯</span></div>
+              <div class="kp" id="kpSw"><span class="ka">▾</span><span class="kn">审题失误</span><span class="knum">7 道</span><span class="kmore">⋯</span></div>
+              <div class="kpc"><div class="kp"><span class="ka off">·</span><span class="kn">字面硬套</span><span class="knum">1 道</span><span class="kmore">⋯</span></div></div>
+              <div class="kpc"><div class="kp"><span class="ka off">·</span><span class="kn">答非所问</span><span class="knum">6 道</span><span class="kmore">⋯</span></div></div>
+              <div class="kp"><span class="ka off">·</span><span class="kn">粗心计算</span><span class="knum">1 道</span><span class="kmore">⋯</span></div>
+            </div>
+
+            <div class="qlist" id="qlist">
+              <div class="card" id="c1">
+                <div class="meta">审题失误 / 字面硬套 · 2026年国考《行测》题（网友回忆版）第37题 · 11-01 19:40 · 正确答案 A · 你的答案 D</div>
+                <div class="qmain">
+                  <div class="qbody">
+                    <div class="qstem">「赶路效应」是指在长途出行中，人们为了避免中途停留带来的「进度中断感」，宁愿忍受身体的不适也不愿停下休息的现象。根据上述定义，下列属于赶路效应的是：</div>
+                    <div class="qopts">
+                      <div class="qopt right">A. 小李自驾回老家，明知腰疼仍在服务区只停 5 分钟就继续上路 ✓</div>
+                      <div class="qopt">B. 小王为了赶早班机，提前一晚住到机场附近的酒店</div>
+                      <div class="qopt">C. 小张自驾途中遇暴雨，主动在县城住了一晚再走</div>
+                      <div class="qopt wrong">D. 小赵每天通勤两小时，习惯了在地铁上补觉 ✗</div>
+                    </div>
+                  </div>
+                  <div class="note-col">
+                    <div class="nlbl">笔记</div>
+                    <div class="ntext">「宁愿忍受」是题眼，别看到「赶」字就选</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card" id="c2">
+                <div class="meta">审题失误 / 答非所问 · 2025年国考《行测》题（网友回忆版）第22题 · 10-28 21:10 · 正确答案 C · 你的答案 B</div>
+                <div class="qmain">
+                  <div class="qbody">
+                    <div class="qstem">某单位要从甲、乙、丙三人中选派两人参加培训，已知：①甲和乙至少去一人；②若甲去则丙不去；③乙和丙不能同去。据此可以推出：</div>
+                    <div class="qopts">
+                      <div class="qopt">A. 甲一定去</div>
+                      <div class="qopt wrong">B. 乙一定去 ✗</div>
+                      <div class="qopt right">C. 丙一定不去 ✓</div>
+                      <div class="qopt">D. 甲和乙都去</div>
+                    </div>
+                  </div>
+                  <div class="note-col">
+                    <div class="nlbl">笔记</div>
+                    <div class="ntext">问「可以推出」不是「一定为真」，先代数再排除</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card dim" id="c3">
+                <div class="meta">知识盲区 / 定义判断 · 2025年省考《行测》题第58题 · 10-20 19:02 · 正确答案 B · 你的答案 A</div>
+                <div class="qmain">
+                  <div class="qbody">
+                    <div class="qstem">「沉没成本谬误」指人们因为已经投入而继续投入，即使继续投入并不理性。下列属于沉没成本谬误的是：</div>
+                  </div>
+                  <div class="note-col">
+                    <div class="nlbl">笔记</div>
+                    <div class="ntext">定义判断先划主体 + 条件，再逐个套</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 云端同步卡 -->
+        <div class="sync" id="sync">
+          <div class="ck">✓</div>
+          <div>
+            <div class="st">云端已同步 · 25 道题</div>
+            <div class="sd">坚果云 · /fenbi/mistakes.json</div>
+          </div>
+        </div>
+
+        <!-- 胶囊 -->
+        <div class="chip" id="chip1"><span class="tx"><span class="d"></span><b>官网错题本只能按题型归</b> · 「我错在哪」分不出来</span></div>
+        <div class="chip ok" id="chip2"><span class="tx"><span class="d"></span><b>错因自己分</b> · 换台设备也还在</span></div>
+
+        <!-- 光标 -->
+        <div class="cursor" id="cursor">
+          <svg viewBox="0 0 24 24"><path d="M5.2 2.6 20 11.1l-6.6 1.7-2.3 6.9z" fill="#32343A" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="ring" id="r0"></div>
+        <div class="ring" id="r1"></div>
+        <div class="ring" id="r2"></div>
+        <div class="ring" id="r3"></div>
+        <div class="ring" id="r4"></div>
+        <div class="ring" id="r5"></div>
+        <div class="flash" id="flash"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cap">
+    <span class="a"><em></em>收藏就抓来源/答案，顺手写笔记</span>
+    <span class="b"><em></em>错因分类自己建，点哪类只出哪类；同步到云端</span>
+  </div>
+</div>
+
+<script>
+(function(){
+  const sceneEl  = document.getElementById('scene');
+  const favbtn   = document.getElementById('favbtn');
+  const mask     = document.getElementById('mask');
+  const dlg      = document.getElementById('dlg');
+  const notebox  = document.getElementById('notebox');
+  const typ1     = document.getElementById('typ1');
+  const caret1   = document.getElementById('caret1');
+  const abcD     = document.getElementById('abcD');
+  const dok      = document.getElementById('dok');
+  const sheet    = document.getElementById('sheet');
+  const nSw      = document.getElementById('nSw');
+  const plusSw   = document.getElementById('plusSw');
+  const nNew     = document.getElementById('nNew');
+  const snew     = document.getElementById('snew');
+  const typ2     = document.getElementById('typ2');
+  const nodeSwNm = nSw.querySelector('.nm');
+  const nodeSwCt = nSw.querySelector('.cnt');
+  const toast    = document.getElementById('toast');
+  const nb       = document.getElementById('nb');
+  const kpAll    = document.getElementById('kpAll');
+  const kpSw     = document.getElementById('kpSw');
+  const kpSwNm   = kpSw.querySelector('.kn');
+  const c1       = document.getElementById('c1');
+  const c2       = document.getElementById('c2');
+  const c3       = document.getElementById('c3');
+  const sync     = document.getElementById('sync');
+  const chip1    = document.getElementById('chip1');
+  const chip2    = document.getElementById('chip2');
+  const cursor   = document.getElementById('cursor');
+  const rings    = ['r0','r1','r2','r3','r4','r5'].map(id => document.getElementById(id));
+  const flash    = document.getElementById('flash');
+
+  /* ---------------- 时间轴 ---------------- */
+  const CYCLE = 13600;
+
+  const T_CHIP1   = 620,  T_CHIP1_OUT = 3450;
+  const T_CUR_BTN = 850,  T_CUR_BTN2 = 1250;
+  const T_CLICK1  = 1360;
+  const T_MASK    = 1430, T_DLG = 1500;
+  const T_TYPE1   = 2150, T_TYPE1_END = 2980;
+  const T_CUR_OK  = 3050, T_CUR_OK2 = 3260;
+  const T_CLICK2  = 3370;
+  const T_DLGOUT  = 3430, T_SHEET = 3550;
+  const T_CUR_PL  = 3960, T_CUR_PL2 = 4270;
+  const T_CLICK3  = 4380;
+  const T_SNEW    = 4500;
+  const T_TYPE2   = 4680, T_TYPE2_END = 5180;
+  const T_ENTER   = 5300;
+  const T_CUR_NEW = 5480, T_CUR_NEW2 = 5760;
+  const T_CLICK4  = 5860;
+  const T_SHEETOUT= 5940;
+  const T_TOAST   = 6080, T_TOAST_OUT = 6750;
+  const T_NB      = 6950;
+  const T_CUR_KP  = 7760, T_CUR_KP2 = 8060;
+  const T_CLICK5  = 8160;
+  const T_SYNC    = 9700;
+  const T_CHIP2   = 10100;
+  const OUT_A     = 12600;
+
+  const NOTE_TXT  = '「宁愿忍受」是题眼，别看到「赶」字就选';
+  const GROUP_TXT = '字面硬套';
+
+  function em(){ return parseFloat(getComputedStyle(sceneEl).fontSize); }
+  function clamp01(x){ return x < 0 ? 0 : x > 1 ? 1 : x; }
+  function ease(x){ return x < .5 ? 2*x*x : 1 - Math.pow(-2*x + 2, 2)/2; }
+  function seg(t,a,b){ return clamp01((t - a) / (b - a)); }
+  function lerp(a,b,k){ return [a[0] + (b[0]-a[0])*k, a[1] + (b[1]-a[1])*k]; }
+
+  /* 每帧实时取中心点（元素位移后仍然准） */
+  function pos(el){
+    const s = sceneEl.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    return [ (r.left + r.width/2 - s.left)/em(), (r.top + r.height/2 - s.top)/em() ];
+  }
+  function putCursor(c){ cursor.style.transform = `translate(${c[0] - .15}em, ${c[1] - .1}em)`; }
+  function ringAt(el, c, k){
+    el.style.opacity = (1 - k) * .9;
+    el.style.transform = `translate(${c[0] - .35}em, ${c[1] - .35}em) scale(${1 + k * 2.3})`;
+  }
+
+  /* 光标路径：按 mov 列表逐段推进 */
+  const START = [13.2, 10.6];
+  function cursorAt(t){
+    let p = START;
+    const mov = [
+      { a: T_CUR_BTN,  b: T_CUR_BTN2,  el: favbtn },
+      { a: T_CUR_OK,   b: T_CUR_OK2,   el: dok },
+      { a: T_CUR_PL,   b: T_CUR_PL2,   el: plusSw },
+      { a: T_CUR_NEW,  b: T_CUR_NEW2,  el: nNew },
+      { a: T_CUR_KP,   b: T_CUR_KP2,   el: kpSwNm },
+    ];
+    for (const m of mov){
+      if (t < m.a) break;
+      p = lerp(p, pos(m.el), ease(clamp01((t - m.a) / (m.b - m.a))));
+    }
+    return p;
+  }
+
+  function render(t){
+    /* --- 开头遮罩与面板 --- */
+    let a = 0;
+    if (t < 300) a = 1 - seg(t, 20, 300);
+    else if (t >= OUT_A) a = seg(t, OUT_A, OUT_A + 300);
+    flash.style.opacity = a;
+
+    /* --- 胶囊 1 --- */
+    chip1.style.opacity = ease(seg(t, T_CHIP1, T_CHIP1 + 300)) * (1 - ease(seg(t, T_CHIP1_OUT, T_CHIP1_OUT + 260)));
+    chip1.style.transform = `translateY(${(1 - ease(seg(t, T_CHIP1, T_CHIP1 + 300))) * .35}em)`;
+
+    /* --- 收藏按钮悬停态 --- */
+    favbtn.classList.toggle('hot', t >= T_CUR_BTN2 - 60 && t < T_CLICK1 + 220);
+
+    /* --- 遮罩 / 弹窗 --- */
+    const mk = ease(seg(t, T_MASK, T_MASK + 260)) * (1 - ease(seg(t, T_DLGOUT, T_DLGOUT + 200)));
+    mask.style.opacity = mk;
+    const dk = ease(seg(t, T_DLG, T_DLG + 300)) * (1 - ease(seg(t, T_DLGOUT, T_DLGOUT + 190)));
+    dlg.style.opacity = dk;
+    dlg.style.transform = `translate(-50%,-50%) scale(${.955 + dk * .045})`;
+
+    /* --- 笔记打字 --- */
+    const n1 = Math.round(clamp01((t - T_TYPE1) / (T_TYPE1_END - T_TYPE1)) * NOTE_TXT.length);
+    if (typ1.textContent.length !== n1) typ1.textContent = NOTE_TXT.slice(0, n1);
+    const typing1 = t >= T_TYPE1 && t < T_TYPE1_END + 120;
+    notebox.classList.toggle('focus', typing1);
+    caret1.style.opacity = (typing1 || (t >= T_DLG && t < T_DLGOUT && Math.floor(t / 420) % 2 === 0)) ? 1 : 0;
+
+    /* --- 确认收藏按钮 --- */
+    dok.classList.toggle('on', t >= T_CLICK2 - 40 && t < T_DLGOUT);
+
+    /* --- 抽屉 --- */
+    const sk = ease(seg(t, T_SHEET, T_SHEET + 340)) * (1 - ease(seg(t, T_SHEETOUT, T_SHEETOUT + 300)));
+    sheet.style.transform = `translateY(${(1 - sk) * 101}%)`;
+
+    /* --- 「+」选中审题失误 → 新建输入行 --- */
+    nSw.classList.toggle('on', t >= T_CLICK3 && t < T_SHEETOUT);
+    const nk = ease(seg(t, T_SNEW, T_SNEW + 240));
+    snew.style.opacity = nk;
+    snew.style.transform = `translateY(${(1 - nk) * .3}em)`;
+
+    /* --- 新建子分类打字 --- */
+    const n2 = Math.round(clamp01((t - T_TYPE2) / (T_TYPE2_END - T_TYPE2)) * GROUP_TXT.length);
+    if (typ2.textContent.length !== n2) typ2.textContent = GROUP_TXT.slice(0, n2);
+
+    /* --- 回车后新节点出现 --- */
+    const appear = t >= T_ENTER;
+    nNew.style.display = appear ? 'flex' : 'none';
+    if (appear){
+      const gk = ease(seg(t, T_ENTER, T_ENTER + 260));
+      nNew.style.opacity = gk;
+      nNew.style.transform = `translateY(${(1 - gk) * -.25}em)`;
+      nNew.classList.toggle('on', t >= T_CLICK4 - 60 && t < T_SHEETOUT);
+      nodeSwCt.textContent = '7';
+      nSw.querySelector('.arw').textContent = '▾';
+    } else {
+      nodeSwCt.textContent = '6';
+      nNew.classList.remove('on');
+    }
+
+    /* --- toast --- */
+    const tk = ease(seg(t, T_TOAST, T_TOAST + 240)) * (1 - ease(seg(t, T_TOAST_OUT, T_TOAST_OUT + 240)));
+    toast.style.opacity = tk;
+    toast.style.transform = `translate(-50%,${(1 - tk) * .4}em)`;
+
+    /* --- 错题本整页 --- */
+    const bk = ease(seg(t, T_NB, T_NB + 380));
+    nb.style.opacity = bk;
+    nb.style.transform = `scale(${.985 + bk * .015})`;
+
+    /* --- 分类筛选 --- */
+    const fk = seg(t, T_CLICK5, T_CLICK5 + 260);
+    kpAll.classList.toggle('on', t < T_CLICK5);
+    kpSw.classList.toggle('on', t >= T_CLICK5);
+    kpSwNm.style.color = t >= T_CLICK5 ? '#2f6bff' : '#3c464f';
+    c3.style.opacity = String(.55 * (1 - fk));
+    c3.style.maxHeight = (1 - fk) * 3.2 + 'em';
+    c3.style.overflow = 'hidden';
+    c3.style.marginTop = (1 - fk) * -.5 + 'em';
+    c2.style.marginTop = '0';
+
+    /* --- 同步卡 --- */
+    const syk = ease(seg(t, T_SYNC, T_SYNC + 300));
+    sync.style.opacity = syk;
+    sync.style.transform = `translateY(${(1 - syk) * .5}em)`;
+
+    /* --- 胶囊 2 --- */
+    chip2.style.opacity = ease(seg(t, T_CHIP2, T_CHIP2 + 320)) * (1 - ease(seg(t, OUT_A - 100, OUT_A + 60)));
+    chip2.style.transform = `translateY(${(1 - ease(seg(t, T_CHIP2, T_CHIP2 + 320))) * .35}em)`;
+
+    /* --- 光标 --- */
+    const c = cursorAt(t);
+    putCursor(c);
+    cursor.style.opacity = ease(seg(t, T_CUR_BTN - 120, T_CUR_BTN + 160)) * (1 - ease(seg(t, T_CLICK5 + 120, T_CLICK5 + 420)));
+
+    /* --- 涟漪 --- */
+    rings.forEach(el => { el.style.opacity = 0; });
+    const rr = [
+      [T_CLICK1 - 40, T_CLICK1 + 300, favbtn, 0],
+      [T_CLICK2 - 40, T_CLICK2 + 260, dok, 1],
+      [T_CLICK3 - 40, T_CLICK3 + 260, plusSw, 2],
+      [T_CLICK4 - 40, T_CLICK4 + 260, nNew, 3],
+      [T_CLICK5 - 40, T_CLICK5 + 280, kpSwNm, 4],
+      [T_ENTER - 30, T_ENTER + 200, nNew, 5],
+    ];
+    rr.forEach(([a2, b2, el, i]) => {
+      const k = seg(t, a2, b2);
+      if (k > 0 && k < 1) ringAt(rings[i], pos(el), k);
+    });
+  }
+
+  let start = performance.now(), paused = false;
+  function loop(now){
+    if (!paused) render((now - start) % CYCLE);
+    requestAnimationFrame(loop);
+  }
+  function boot(){
+    render(0);
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce){ render(4200); paused = true; return; }
+    requestAnimationFrame(loop);
+  }
+  window.__setT = function(t){ paused = true; render(t); };
+  window.__play = function(){ paused = false; start = performance.now(); };
+
+  if (document.readyState === 'complete') boot();
+  else window.addEventListener('load', boot);
+})();
+</script>
+</body>
+</html>

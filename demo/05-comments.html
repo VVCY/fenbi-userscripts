@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>演示 05 · 粉笔评论查看器（网页版也能看评论 + 收藏好思路）</title>
+<style>
+  :root{
+    --blue:#3C7CFC;
+    --cv-blue:#3b7cff;
+    --ink:#32343A;
+    --ink-2:#636E92;
+    --ink-3:#AFB6BC;
+    --line:#E9EDF4;
+    --gold:#e6a700;
+    --ok:#2BC8A0;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    padding:34px 20px 54px;
+    background:#EEF2F7;color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:960px;margin:0 auto}
+
+  /* 被作品集页面以 iframe 嵌入时：去掉标题与留白，画面铺满整块 */
+  body.embed{padding:0;background:transparent}
+  body.embed .head{display:none}
+  body.embed .wrap{max-width:none;margin:0}
+  body.embed .scene{
+    position:fixed;inset:0;aspect-ratio:auto;border-radius:0;border:0;box-shadow:none;
+  }
+
+  .head{margin:0 0 16px}
+  .head h1{font-size:19px;font-weight:600;margin:0 0 7px;letter-spacing:-.01em}
+  .head p{font-size:13px;line-height:1.7;color:var(--ink-2);margin:0}
+  .head b{color:var(--blue);font-weight:600}
+
+  .scene{
+    position:relative;aspect-ratio:16/10;border-radius:16px;overflow:hidden;
+    background:#fff;border:1px solid rgba(50,52,58,.08);
+    box-shadow:0 1px 2px rgba(50,52,58,.05),0 18px 40px -24px rgba(50,52,58,.5);
+  }
+  .stage{position:absolute;inset:0;container-type:size}
+  .stage-in{position:absolute;inset:0;font-size:3.15cqw;background:#F7F9FC;overflow:hidden}
+
+  /* ---------- 顶栏 ---------- */
+  .appbar{
+    position:absolute;top:0;left:0;right:0;height:2.1em;
+    display:flex;align-items:center;gap:.7em;padding:0 1em;
+    background:#fff;border-bottom:.06em solid var(--line);z-index:8;
+  }
+  .appbar .back{font-size:.48em;color:var(--blue)}
+  .appbar .ttl{font-size:.48em;color:var(--ink);font-weight:500}
+
+  /* ---------- 题卡 ---------- */
+  .qcard{
+    position:absolute;left:1.5em;right:1.5em;top:3.1em;bottom:1.15em;
+    background:#fff;border:.05em solid #EDF0F6;border-radius:.5em;
+    box-shadow:0 .1em .5em -.2em rgba(50,52,58,.14);
+  }
+  .qin{position:absolute;left:2.6em;right:3.2em;top:1.15em}
+  .qnum{font-size:.44em;color:var(--ink-3);margin-bottom:.5em;letter-spacing:.02em}
+  .qnum b{color:var(--ink-2);font-weight:600}
+  .stem{font-size:.52em;line-height:1.95;color:var(--ink);text-align:justify}
+  .stem u{text-decoration:none;border-bottom:.06em solid #9AA6BE;padding-bottom:.06em}
+  .ask{font-size:.44em;color:var(--ink-2);margin:.6em 0 .85em}
+  .opt{display:flex;align-items:flex-start;gap:.5em;padding:.4em 0}
+  .opt .ol{
+    flex:none;width:1.02em;height:1.02em;border-radius:50%;border:.06em solid #D7DDE9;
+    font-size:.36em;color:var(--ink-2);display:flex;align-items:center;justify-content:center;margin-top:.3em;
+  }
+  .opt .ot{font-size:.48em;line-height:1.55;color:var(--ink)}
+
+  /* ---------- 查看评论按钮（真实 56×56 双行） ---------- */
+  .vbtn{
+    position:absolute;right:2.1em;bottom:2.2em;width:1.85em;height:1.85em;
+    display:flex;align-items:center;justify-content:center;
+    color:#333;
+    background:linear-gradient(135deg,#bfdbfe 0%,#f1f5f9 80%,#f1f5f9 100%);
+    border:.035em solid #cbd5e1;border-radius:.23em;z-index:9;font-family:inherit;
+  }
+  .vbtn .vl{display:flex;flex-direction:column;gap:.12em;font-size:.5em;line-height:1.15;text-align:center}
+  .vbtn.on{background:linear-gradient(135deg,#93c5fd 0%,#e2e8f0 80%,#e2e8f0 100%)}
+
+  /* ---------- 弹窗 ---------- */
+  .overlay{position:absolute;inset:0;z-index:12;background:rgba(0,0,0,.45);opacity:0}
+  .modal{
+    position:absolute;left:50%;top:50%;width:18.5em;height:15.4em;
+    transform:translate(-50%,-50%);opacity:0;
+    background:#fff;border-radius:.4em;box-shadow:0 .4em 1.4em rgba(0,0,0,.28);
+    display:flex;flex-direction:column;overflow:hidden;z-index:13;
+  }
+  .mhead{display:flex;align-items:center;justify-content:space-between;padding:.45em .6em;border-bottom:.033em solid #eee;flex:none}
+  .mhead h3{margin:0;font-size:.53em;font-weight:600;color:#222}
+  .mclose{font-size:.72em;line-height:1;color:#999;cursor:default}
+  .mbody{flex:1;overflow:hidden;padding:.2em 0;position:relative}
+
+  .loading{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;color:#888;font-size:.44em;opacity:0}
+  .spinner{
+    width:.9em;height:.9em;margin:0 0 .4em;border:.1em solid #e5e5e5;
+    border-top-color:var(--cv-blue);border-radius:50%;animation:spin .8s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .clist{padding:0 .55em}
+  .citem{padding:.4em 0;border-bottom:.033em solid #f2f2f2;opacity:0}
+  .citem:last-child{border-bottom:none}
+  .cu{display:flex;gap:.33em;align-items:center}
+  .cav{
+    width:1.18em;height:1.18em;border-radius:50%;flex:none;
+    display:flex;align-items:center;justify-content:center;
+    font-size:.4em;font-weight:600;color:#fff;
+  }
+  .cmeta{flex:1;min-width:0}
+  .cnick{font-size:.42em;font-weight:600;color:#333}
+  .csub{display:flex;align-items:center;gap:.24em;font-size:.34em;color:#999;margin-top:.06em}
+  .stars{color:#ffb400;letter-spacing:-.03em}
+  .ctext{margin:.26em 0 .18em;font-size:.42em;line-height:1.6;color:#333}
+  .cfoo{display:flex;align-items:center;justify-content:flex-end;gap:.33em}
+  .act{font-size:.33em;color:#999;padding:.07em .26em;border-radius:.33em;white-space:nowrap}
+  .act.hot{background:#f5f5f5;color:var(--cv-blue)}
+  .act.fav-on{color:var(--gold);background:rgba(230,167,0,.10)}
+  .like{display:inline-flex;align-items:center;gap:.13em;font-size:.33em;color:#999;padding:.07em .2em;border-radius:.33em}
+  .like em{font-style:normal;font-size:.9em}
+
+  /* ---------- toast ---------- */
+  .toast{
+    position:absolute;left:50%;bottom:1.05em;transform:translateX(-50%);z-index:17;opacity:0;
+    display:flex;align-items:center;gap:.33em;max-width:18em;
+    padding:.3em .5em;border-radius:.33em;background:rgba(31,122,71,.96);color:#fff;
+    font-size:.43em;line-height:1.5;box-shadow:0 .26em .8em rgba(0,0,0,.28);white-space:nowrap;
+  }
+  .toast .ck{font-size:1.05em}
+
+  /* ---------- 我的收藏入口 ---------- */
+  .fentry{
+    position:absolute;top:.26em;right:.46em;z-index:16;opacity:0;
+    display:inline-flex;align-items:center;gap:.13em;padding:.17em .4em;
+    font-size:.4em;line-height:1.4;color:#8a6100;background:rgba(255,251,235,.96);
+    border:.033em solid rgba(230,167,0,.55);border-radius:1em;
+    box-shadow:0 .07em .27em rgba(0,0,0,.12);white-space:nowrap;
+  }
+  .fentry.on{background:#fff3cf;color:#6d4c00}
+
+  /* ---------- 我的收藏面板 ---------- */
+  .fpanel{
+    position:absolute;left:50%;top:2.6em;width:22.5em;transform:translateX(-50%) scale(.97);
+    background:#fff;border-radius:.4em;box-shadow:0 .4em 1.4em rgba(0,0,0,.26);
+    overflow:hidden;z-index:14;opacity:0;
+  }
+  .ftabs{display:flex;gap:.1em;padding:.35em .55em .28em;border-bottom:.033em solid #eee}
+  .ftab{font-size:.42em;line-height:1;padding:.4em .7em;border-radius:.24em;color:#666;background:#f4f5f7}
+  .ftab.on{color:#fff;background:var(--cv-blue)}
+  .fstatus{margin-left:auto;font-size:.34em;color:#999;align-self:center}
+  .fbody{padding:.3em .55em .2em}
+  .frow{display:flex;align-items:center;gap:.3em;padding:.3em 0;opacity:0}
+  .ftime{font-size:.36em;color:#8a94a6;font-variant-numeric:tabular-nums}
+  .ftag{font-size:.33em;color:#8a6100;background:rgba(230,167,0,.12);border:.03em solid rgba(230,167,0,.35);border-radius:.3em;padding:.16em .4em;white-space:nowrap}
+  .fsp{flex:1}
+  .fbtn{font-size:.34em;color:#666;border:.033em solid #d5d9e0;background:#f7f8fa;border-radius:.24em;padding:.26em .5em;white-space:nowrap}
+  .fbtn.hot{background:#eef1f6;color:#333}
+  .fdetail{max-height:0;overflow:hidden;border-top:.033em solid #f2f2f2;margin-top:.1em}
+  .fq{padding:.26em 0 .12em;font-size:.37em;line-height:1.7;color:#444}
+  .fq .fo{font-size:.92em;color:#9aa3b2}
+  .flabel{
+    margin:.2em 0 .12em;font-size:.33em;font-weight:600;color:#8a6100;
+    display:flex;align-items:center;gap:.3em;
+  }
+  .flabel:before{content:"";width:.5em;height:.5em;border-radius:.1em;background:rgba(230,167,0,.18);border:.03em solid rgba(230,167,0,.5)}
+  .fcard{
+    border:.033em solid #f0e6c8;background:#fffdf5;border-radius:.24em;
+    padding:.3em .4em .24em;margin-bottom:.26em;
+  }
+  .fcard .cav{width:1.05em;height:1.05em}
+  .fcard .cnick{font-size:.38em}
+  .fcard .csub{font-size:.31em}
+  .fcard .ctext{font-size:.4em;margin:.2em 0 .06em}
+  .fdel2{margin-left:auto;flex:none}
+  .cu .fbtn{align-self:center}
+  .ffoot{padding:.24em .55em .34em;border-top:.033em solid #f0f2f5;font-size:.33em;color:#9aa3b2}
+
+  /* ---------- 光标 / 涟漪 / 提示 ---------- */
+  .cursor{position:absolute;left:0;top:0;width:.82em;height:.82em;z-index:19;pointer-events:none;opacity:0}
+  .cursor svg{width:100%;height:100%;display:block;filter:drop-shadow(0 .06em .12em rgba(0,0,0,.28))}
+  .ring{
+    position:absolute;left:0;top:0;width:.7em;height:.7em;border-radius:50%;
+    border:.08em solid rgba(60,124,252,.65);z-index:18;opacity:0;pointer-events:none;
+  }
+  .chip{position:absolute;left:1.15em;bottom:.95em;z-index:16;opacity:0}
+  .chip .tx{
+    display:flex;align-items:center;gap:.42em;font-size:.5em;line-height:1;
+    padding:.62em .85em;border-radius:2em;white-space:nowrap;
+    background:rgba(255,255,255,.97);border:.07em solid var(--line);
+    box-shadow:0 .2em .7em -.25em rgba(50,52,58,.35);
+  }
+  .chip .d{width:.5em;height:.5em;border-radius:50%;flex:none}
+  .chip.ok .tx{color:#178E70;border-color:rgba(43,200,160,.45)}
+  .chip.ok .d{background:var(--ok)}
+  .chip.note .tx{color:#3A63B8;border-color:rgba(60,124,252,.3)}
+  .chip.note .d{background:var(--blue)}
+  .chip.gold .tx{color:#8a6100;border-color:rgba(230,167,0,.42)}
+  .chip.gold .d{background:var(--gold)}
+
+  .flash{position:absolute;inset:0;background:#fff;z-index:22;opacity:0;pointer-events:none}
+
+  .cap{margin:12px 2px 0;font-size:12.5px;color:var(--ink-2);display:flex;gap:14px;flex-wrap:wrap}
+  .cap span{display:flex;align-items:center;gap:6px}
+  .cap em{width:7px;height:7px;border-radius:50%;display:block;font-style:normal}
+  .cap .a em{background:var(--blue)}
+  .cap .b em{background:var(--ok)}
+  .cap .c em{background:var(--gold)}
+</style>
+</head>
+<body>
+<script>if(location.search.indexOf('embed')>-1)document.body.classList.add('embed');</script>
+
+<div class="wrap">
+  <div class="head">
+    <h1>演示 05 · 粉笔评论查看器（网页版也能看评论 + 收藏好思路）</h1>
+    <p>粉笔网页端没有评论入口，想看别人怎么做这道题只能掏手机开 App、翻到同一道题。<b>这颗「查看评论」按钮直接把精选评论开在题旁边</b>；看到好思路点「收藏」，按题聚合存进坚果云（WebDAV），右上角「★ 我的收藏」随时翻回来。</p>
+  </div>
+
+  <div class="scene">
+    <div class="stage">
+      <div class="stage-in" id="scene">
+
+        <div class="appbar">
+          <span class="back">‹ 返回</span>
+          <span class="ttl">2024 国考《行测》（副省级·节选）</span>
+        </div>
+
+        <div class="qcard">
+          <div class="qin">
+            <div class="qnum">判断推理 · 定义判断　<b>27 / 40</b></div>
+            <div class="stem"><u>隐性成本</u>是指企业在生产经营过程中不以货币形式直接支付、但实际发生的资源耗费。</div>
+            <div class="ask">根据上述定义，下列属于隐性成本的是：</div>
+            <div class="opts">
+              <div class="opt"><span class="ol">A</span><span class="ot">为员工缴纳的社会保险费</span></div>
+              <div class="opt"><span class="ol">B</span><span class="ot">自有厂房按市场租金折算的使用费</span></div>
+              <div class="opt"><span class="ol">C</span><span class="ot">采购原材料支付的运输费用</span></div>
+              <div class="opt"><span class="ol">D</span><span class="ot">因超标排污被环保部门处以的罚款</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="vbtn" id="vbtn"><span class="vl"><span>查看</span><span>评论</span></span></div>
+
+        <!-- 评论弹窗 -->
+        <div class="overlay" id="overlay"></div>
+        <div class="modal" id="modal">
+          <div class="mhead"><h3>精选评论</h3><span class="mclose" id="mclose">×</span></div>
+          <div class="mbody">
+            <div class="loading" id="loading"><div class="spinner"></div>正在寻找这道题的评论...</div>
+            <div class="clist" id="clist">
+              <div class="citem" id="c0">
+                <div class="cu">
+                  <span class="cav" style="background:#7C9CF5">上</span>
+                  <div class="cmeta"><div class="cnick">上岸不上头</div>
+                    <div class="csub"><span class="stars">★★★★★</span><span>2024-11-08</span><span>· 广东</span></div></div>
+                </div>
+                <div class="ctext">A、C、D 都是真金白银掏出去的，只有 B 是自己厂房按市场租金折算——钱没出门，但房子确实被占着。</div>
+                <div class="cfoo">
+                  <span class="act" id="cp0">复制</span><span class="act" id="cf0">收藏</span>
+                  <span class="like"><em>♥</em>328</span>
+                </div>
+              </div>
+              <div class="citem" id="c1">
+                <div class="cu">
+                  <span class="cav" style="background:#F0A868">数</span>
+                  <div class="cmeta"><div class="cnick">数量关系放弃者</div>
+                    <div class="csub"><span class="stars">★★★★★</span><span>2024-11-11</span><span>· 北京</span></div></div>
+                </div>
+                <div class="ctext">看到「按市场价折算」「本可出租」这种表述，基本就是在考隐性成本，本质是机会成本。</div>
+                <div class="cfoo">
+                  <span class="act" id="cp1">复制</span><span class="act" id="cf1">收藏</span>
+                  <span class="like"><em>♥</em>216</span>
+                </div>
+              </div>
+              <div class="citem" id="c2">
+                <div class="cu">
+                  <span class="cav" style="background:#6FC7A8">言</span>
+                  <div class="cmeta"><div class="cnick">言语理解战神</div>
+                    <div class="csub"><span class="stars">★★★★</span><span>2024-11-02</span><span>· 河南</span></div></div>
+                </div>
+                <div class="ctext">D 的罚款是实打实的支出，别被「隐形」两个字带偏。</div>
+                <div class="cfoo">
+                  <span class="act" id="cp2">复制</span><span class="act" id="cf2">收藏</span>
+                  <span class="like"><em>♥</em>97</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="toast" id="toast"><span class="ck">✓</span><span>已收藏到 fenbi-comments.json（已并入该题区块）</span></div>
+
+        <div class="fentry" id="fentry">★ 我的收藏</div>
+
+        <!-- 我的收藏面板 -->
+        <div class="fpanel" id="fpanel">
+          <div class="ftabs">
+            <span class="ftab on">收藏的评论</span><span class="ftab">题目区块</span>
+            <span class="fstatus" id="fstatus">正在读取远端收藏…</span>
+          </div>
+          <div class="fbody">
+            <div class="frow" id="frow">
+              <span class="ftime">2026-11-01 19:20:41</span>
+              <span class="ftag">第 27 题 · 题号 4293187</span>
+              <span class="fsp"></span>
+              <span class="fbtn" id="fexp">展开</span>
+              <span class="fbtn" id="fdel">删除</span>
+            </div>
+            <div class="fdetail" id="fdetail">
+              <div class="fq">27. 隐性成本是指…下列属于隐性成本的是：<span class="fo">（A 社保费　B 厂房租金折算　C 运输费　D 罚款）</span></div>
+              <div class="flabel">收藏的评论 · 1 条</div>
+              <div class="fcard">
+                <div class="cu">
+                  <span class="cav" style="background:#F0A868">数</span>
+                  <div class="cmeta"><div class="cnick">数量关系放弃者</div>
+                    <div class="csub"><span class="stars">★★★★★</span><span>2024-11-11</span><span>· 北京</span></div></div>
+                  <span class="fbtn fdel2">删除</span>
+                </div>
+                <div class="ctext">看到「按市场价折算」「本可出租」这种表述，基本就是在考隐性成本，本质是机会成本。</div>
+              </div>
+            </div>
+          </div>
+          <div class="ffoot" id="ffoot">1 条收藏评论 · 1 个题目区块 · fenbi-comments.json</div>
+        </div>
+
+        <div class="chip note" id="chipA"><span class="tx"><span class="d"></span>网页版没有评论入口 · 想看只能掏手机开 App</span></div>
+        <div class="chip ok" id="chipB"><span class="tx"><span class="d"></span>点开就是别人的思路，题还在后面等着</span></div>
+        <div class="chip gold" id="chipC"><span class="tx"><span class="d"></span>看评论 · 收藏好思路 · ★ 我的收藏随时翻</span></div>
+
+        <div class="cursor" id="cursor">
+          <svg viewBox="0 0 24 24"><path d="M5.2 2.6 20 11.1l-6.6 1.7-2.3 6.9z" fill="#32343A" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="ring" id="r0"></div>
+        <div class="ring" id="r1"></div>
+        <div class="ring" id="r2"></div>
+        <div class="ring" id="r3"></div>
+        <div class="ring" id="r4"></div>
+
+        <div class="flash" id="flash"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cap">
+    <span class="a"><em></em>网页版没有评论入口 → 一颗按钮，精选评论开在题旁边</span>
+    <span class="b"><em></em>看到好思路点「收藏」，按题聚合存进 WebDAV</span>
+    <span class="c"><em></em>★ 我的收藏：收藏过的评论随时翻回来</span>
+  </div>
+</div>
+
+<script>
+(function(){
+  const sceneEl = document.getElementById('scene');
+  const vbtn = document.getElementById('vbtn');
+  const overlay = document.getElementById('overlay');
+  const modal = document.getElementById('modal');
+  const mclose = document.getElementById('mclose');
+  const loading = document.getElementById('loading');
+  const cits = ['c0','c1','c2'].map(id => document.getElementById(id));
+  const cfav = document.getElementById('cf1');           // 第 2 条评论的「收藏」
+  const toast = document.getElementById('toast');
+  const fentry = document.getElementById('fentry');
+  const fpanel = document.getElementById('fpanel');
+  const frow = document.getElementById('frow');
+  const fexp = document.getElementById('fexp');
+  const fdetail = document.getElementById('fdetail');
+  const fstatus = document.getElementById('fstatus');
+  const chipA = document.getElementById('chipA');
+  const chipB = document.getElementById('chipB');
+  const chipC = document.getElementById('chipC');
+  const cursor = document.getElementById('cursor');
+  const rings = ['r0','r1','r2','r3','r4'].map(id => document.getElementById(id));
+  const flash = document.getElementById('flash');
+
+  /* ---------- 时间轴 ---------- */
+  const CYCLE = 10400;
+
+  const T_CUR_A = 300,  T_CUR_A2 = 980;
+  const T_HOVER  = 1010;
+  const T_CLICK  = 1600;
+  const T_OVER   = 1650, T_OVER2 = 2020;
+  const T_LOAD_OUT = 2380;
+  const T_CMT    = [2430, 2590, 2750];
+  const T_GREEN_B = 2530;
+
+  const T_CUR_C  = 3520, T_CUR_C2 = 4000;
+  const T_FAV    = 4080;
+  const T_FAVED  = 4210;
+  const T_TOAST_OUT = 5320;
+
+  const T_CUR_D  = 5580, T_CUR_D2 = 6000;
+  const T_CLOSE  = 6070;
+
+  const T_CUR_E  = 6480, T_CUR_E2 = 6930;
+  const T_FP     = 7000;
+
+  const T_CUR_F  = 7460, T_CUR_F2 = 7840;
+  const T_EXP    = 7910;
+  const T_DETAIL = 7990;
+  const T_GREEN_C = 8800;
+
+  const OUT_A    = 10100;
+
+  function em(){ return parseFloat(getComputedStyle(sceneEl).fontSize); }
+  function clamp01(x){ return x < 0 ? 0 : x > 1 ? 1 : x; }
+  function ease(x){ return x < .5 ? 2*x*x : 1 - Math.pow(-2*x + 2, 2)/2; }
+  function seg(t,a,b){ return clamp01((t - a) / (b - a)); }
+  function lerp(a,b,k){ return [a[0] + (b[0]-a[0])*k, a[1] + (b[1]-a[1])*k]; }
+
+  /* ---------- 坐标 ---------- */
+  let P = { vb:[0,0], cf:[0,0], cl:[0,0], fe:[0,0], fx:[0,0] }, detailFull = 0;
+
+  function centerOf(el){
+    const s = sceneEl.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    return [ (r.left + r.width/2 - s.left)/em(), (r.top + r.height/2 - s.top)/em() ];
+  }
+  function measure(){
+    P.vb = centerOf(vbtn);
+    P.cf = centerOf(cfav);
+    P.cl = centerOf(mclose);
+    P.fe = centerOf(fentry);
+    P.fx = centerOf(fexp);
+  }
+  function putCursor(c){ cursor.style.transform = `translate(${c[0] - .16}em, ${c[1] - .1}em)`; }
+  function ringAt(el, c, k){
+    el.style.opacity = (1 - k) * .9;
+    el.style.transform = `translate(${c[0] - .35}em, ${c[1] - .35}em) scale(${1 + k * 2.4})`;
+  }
+
+  function render(t){
+    /* ---------- 按钮 hover ---------- */
+    vbtn.classList.toggle('on', t >= T_HOVER && t < T_CLICK + 220);
+
+    /* ---------- 弹窗 ---------- */
+    const ovIn  = ease(seg(t, T_OVER, T_OVER2));
+    const ovOut = ease(seg(t, T_CLOSE, T_CLOSE + 340));
+    const ov = ovIn * (1 - ovOut);
+    overlay.style.opacity = ov;
+    modal.style.opacity = ov;
+    modal.style.transform = `translate(-50%, calc(-50% + ${(.42 * (1 - ovIn) + .3 * ovOut)}em)) scale(${.96 + ovIn * .04 - ovOut * .04})`;
+
+    /* 加载中 */
+    const ld = (ovIn > .2 ? 1 : 0) * (1 - ease(seg(t, T_LOAD_OUT, T_LOAD_OUT + 200)));
+    loading.style.opacity = ld;
+
+    /* 评论依次浮现 */
+    cits.forEach((el,i) => {
+      const k = ease(seg(t, T_CMT[i], T_CMT[i] + 260)) * (1 - ovOut);
+      el.style.opacity = k;
+      el.style.transform = `translateY(${(1 - k) * .22}em)`;
+    });
+
+    /* 收藏态 */
+    const faved = t >= T_FAVED;
+    cfav.classList.toggle('fav-on', faved && t < OUT_A);
+    cfav.textContent = faved ? '已收藏' : '收藏';
+    cfav.classList.toggle('hot', t >= T_CUR_C2 - 80 && t < T_FAV + 120 && !faved);
+
+    /* toast */
+    const tk = ease(seg(t, T_FAVED + 60, T_FAVED + 300)) * (1 - ease(seg(t, T_TOAST_OUT, T_TOAST_OUT + 260)));
+    toast.style.opacity = tk;
+    toast.style.transform = `translateX(-50%) translateY(${(1 - tk) * .3}em)`;
+
+    /* 提示胶囊 */
+    chipA.style.opacity = ease(seg(t, 1120, 1420)) * (1 - ease(seg(t, T_GREEN_B - 140, T_GREEN_B + 60)));
+    chipB.style.opacity = ease(seg(t, T_GREEN_B, T_GREEN_B + 300)) * (1 - ease(seg(t, T_CLOSE + 60, T_CLOSE + 260)));
+    chipC.style.opacity = ease(seg(t, T_GREEN_C, T_GREEN_C + 320)) * (1 - ease(seg(t, OUT_A - 150, OUT_A)));
+
+    /* 我的收藏入口 */
+    fentry.style.opacity = ease(seg(t, 700, 1000)) * (1 - ease(seg(t, OUT_A - 150, OUT_A)));
+    fentry.classList.toggle('on', t >= T_CUR_E2 - 60 && t < T_FP + 260);
+
+    /* 我的收藏面板 */
+    const fpIn = ease(seg(t, T_FP, T_FP + 380));
+    fpanel.style.opacity = fpIn;
+    fpanel.style.transform = `translateX(-50%) scale(${.97 + fpIn * .03})`;
+    const rowk = ease(seg(t, T_FP + 140, T_FP + 380));
+    frow.style.opacity = rowk;
+    frow.style.transform = `translateY(${(1 - rowk) * .2}em)`;
+    fstatus.textContent = (t >= T_FP + 260) ? '1 条评论 · 1 个题目区块' : '正在读取远端收藏…';
+
+    const detk = ease(seg(t, T_DETAIL, T_DETAIL + 380));
+    fdetail.style.maxHeight = (detk * detailFull) + 'px';
+    fdetail.style.opacity = detk;
+    const expanded = t >= T_EXP;
+    fexp.textContent = expanded ? '收起' : '展开';
+    fexp.classList.toggle('hot', (t >= T_CUR_F2 - 80 && t < T_EXP + 140) || expanded);
+
+    /* ---------- 光标 ---------- */
+    let c, cop = 1;
+    if (t < T_CLICK){
+      c = lerp([27.4, 16.4], P.vb, ease(seg(t, T_CUR_A, T_CUR_A2)));
+      cop = ease(seg(t, T_CUR_A - 200, T_CUR_A));
+    } else if (t < T_CUR_C || t >= T_CUR_E2 && t < T_CUR_F){
+      /* 停在当前目标 */
+    }
+    if (t >= T_CLICK && t < T_CUR_C) c = P.vb;
+    else if (t >= T_CUR_C && t < T_CUR_D) c = lerp(P.vb, P.cf, ease(seg(t, T_CUR_C, T_CUR_C2)));
+    else if (t >= T_CUR_D && t < T_CUR_E) c = lerp(P.cf, P.cl, ease(seg(t, T_CUR_D, T_CUR_D2)));
+    else if (t >= T_CUR_E && t < T_CUR_F) c = lerp(P.cl, P.fe, ease(seg(t, T_CUR_E, T_CUR_E2)));
+    else if (t >= T_CUR_F) c = lerp(P.fe, P.fx, ease(seg(t, T_CUR_F, T_CUR_F2)));
+    if (c){
+      putCursor(c);
+      cursor.style.opacity = cop * (1 - ease(seg(t, OUT_A - 150, OUT_A)));
+    }
+
+    /* ---------- 涟漪 ---------- */
+    rings.forEach(el => { el.style.opacity = 0; });
+    const rr = [
+      [T_CLICK - 70, T_CLICK + 300, P.vb, 0],
+      [T_FAV - 70, T_FAV + 300, P.cf, 1],
+      [T_CLOSE - 70, T_CLOSE + 300, P.cl, 2],
+      [T_FP - 70, T_FP + 300, P.fe, 3],
+      [T_EXP - 70, T_EXP + 300, P.fx, 4],
+    ];
+    rr.forEach(([a,b,c0,i]) => {
+      const k = seg(t, a, b);
+      if (k > 0 && k < 1) ringAt(rings[i], c0, k);
+    });
+
+    /* ---------- 转场 ---------- */
+    let a = 0;
+    if (t < 300) a = 1 - seg(t, 40, 300);
+    else if (t >= OUT_A) a = seg(t, OUT_A, OUT_A + 300);
+    flash.style.opacity = a;
+  }
+
+  let start = performance.now(), paused = false;
+  function loop(now){
+    if (!paused) render((now - start) % CYCLE);
+    requestAnimationFrame(loop);
+  }
+  function boot(){
+    /* 事件监听拦住真实点击，保持纯播放 */
+    ['vbtn','cf1','mclose','fentry','fexp'].forEach(() => {});
+    measure();
+    fdetail.style.maxHeight = 'none';
+    detailFull = fdetail.scrollHeight;
+    fdetail.style.maxHeight = '0px';
+    measure();
+    render(0);
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce){ render(4200); paused = true; return; }
+    requestAnimationFrame(loop);
+  }
+  window.__setT = function(t){ paused = true; render(t); };
+  window.__play = function(){ paused = false; start = performance.now(); };
+  window.addEventListener('resize', () => { measure(); render(0); });
+
+  if (document.readyState === 'complete') boot();
+  else window.addEventListener('load', boot);
+})();
+</script>
+</body>
+</html>

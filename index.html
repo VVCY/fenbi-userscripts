@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>粉笔脚本君 · 粉笔网页版增强工具</title>
+<meta name="description" content="9 个浏览器脚本，把粉笔网页版改造成顺手的备考工具：错题整理、试卷排版打印、悬浮查词、题目折叠。" />
+<style>
+  :root {
+    --bg: #f3f6fd;
+    --bg-2: #e9eefa;
+    --surface: #ffffff;
+    --ink: #17233c;
+    --ink-2: #59647e;
+    --ink-3: #97a1b6;
+    --line: #e6ecf8;
+    --accent: #2f6bdc;
+    --accent-ink: #17407f;
+    --accent-soft: #e8f0fe;
+
+    --c-blue-bg: #e6eefc;   --c-blue-fg: #2158c8;
+    --c-amber-bg: #fbf0da;  --c-amber-fg: #96620e;
+    --c-teal-bg: #e2f4ee;   --c-teal-fg: #10705a;
+    --c-slate-bg: #eaeef7;  --c-slate-fg: #3f5578;
+
+    --radius-lg: 22px;
+    --radius-md: 14px;
+    --shadow: 0 1px 2px rgba(23, 35, 60, 0.04), 0 10px 30px -18px rgba(23, 35, 60, 0.28);
+    --shadow-hover: 0 2px 4px rgba(23, 35, 60, 0.05), 0 18px 40px -20px rgba(23, 35, 60, 0.34);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+      "Microsoft YaHei", sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 20px; }
+
+  /* ---------- hero ---------- */
+  .hero { padding: 60px 0 48px; }
+
+  .kicker {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    background: var(--surface);
+    border-radius: 999px;
+    padding: 7px 10px 7px 14px;
+    margin-bottom: 26px;
+  }
+
+  /* 蓝 → 紫 → 红 渐变描边（把三个品牌色串起来） */
+  .kicker::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    padding: 1.6px;
+    background: linear-gradient(100deg, #2f6bdc, #9a6ff0 55%, #ff2442);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .kicker .name { font-size: 13.5px; color: var(--ink); font-weight: 700; letter-spacing: -0.01em; }
+
+  .kicker .follow { font-size: 12.5px; color: var(--ink-3); }
+
+  .kicker .sns {
+    display: grid;
+    place-items: center;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    text-decoration: none;
+    transition: transform 0.16s ease;
+  }
+
+  .kicker .sns svg { width: 16px; height: 16px; display: block; fill: #fff; }
+
+  .kicker .sns.xhs { background: #ff2442; }
+  .kicker .sns.dy  { background: #17181c; }
+
+  .kicker .sns:hover { transform: scale(1.1); }
+
+  h1 {
+    font-size: clamp(30px, 5vw, 46px);
+    line-height: 1.28;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0 0 18px;
+    max-width: 20em;
+  }
+
+  h1 span { color: var(--accent); }
+
+  .lede {
+    font-size: 16px;
+    color: var(--ink-2);
+    max-width: 33em;
+    margin: 0;
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 38px;
+  }
+
+  .stat {
+    background: var(--surface);
+    border-radius: var(--radius-md);
+    padding: 16px 18px 14px;
+    box-shadow: var(--shadow);
+  }
+
+  .stat b {
+    display: block;
+    font-size: 25px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+
+  .stat span { font-size: 12.5px; color: var(--ink-3); }
+
+  /* ---------- section ---------- */
+  section { padding: 8px 0 12px; }
+
+  .sec-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin: 8px 0 20px;
+  }
+
+  h2 {
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  h2 em {
+    font-style: normal;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--ink-3);
+  }
+
+  /* ---------- grid ---------- */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+    gap: 14px;
+  }
+
+  .card {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    padding: 20px 20px 16px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .card:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); }
+
+  .card-top { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+
+  .ico {
+    flex: 0 0 auto;
+    width: 38px; height: 38px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .card h3 {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.4;
+    margin: 2px 0 1px;
+    letter-spacing: -0.005em;
+  }
+
+  .meta { font-size: 12px; color: var(--ink-3); }
+
+  .card p {
+    font-size: 13.5px;
+    color: var(--ink-2);
+    line-height: 1.62;
+    margin: 0 0 14px;
+    flex: 1;
+  }
+
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+
+  .tags span {
+    font-size: 11.5px;
+    color: var(--ink-2);
+    background: var(--bg-2);
+    border-radius: 999px;
+    padding: 2px 9px;
+  }
+
+  .card-foot {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+    font-size: 12.5px;
+    color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .card-foot b { color: var(--ink); font-weight: 600; }
+
+  .card-foot a {
+    margin-left: auto;
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 5px 14px;
+    border-radius: 999px;
+    transition: background 0.16s ease, color 0.16s ease;
+    white-space: nowrap;
+  }
+
+  .card-foot a:hover { background: var(--accent); color: #fff; }
+
+  /* ---------- demos ---------- */
+  .demo-grid { display: grid; gap: 16px; }
+
+  .demo-card {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    padding: 9px 9px 0;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    scroll-margin-top: 28px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .demo-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+
+  .demo-card.is-target {
+    box-shadow: 0 0 0 2px var(--accent), var(--shadow-hover);
+  }
+
+  .demo-frame {
+    position: relative;
+    aspect-ratio: 16 / 10;
+    border-radius: 15px;
+    overflow: hidden;
+    background: var(--bg-2);
+  }
+
+  .demo-frame iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+  }
+
+  .demo-cap {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 9px;
+    padding: 12px 8px 14px;
+  }
+
+  .demo-idx {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-radius: 7px;
+    padding: 1px 6px;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .demo-cap b { font-size: 14.5px; font-weight: 600; }
+
+  .demo-tag { font-size: 13px; color: var(--ink-2); }
+
+  .demo-time {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 640px) {
+    .demo-grid { gap: 12px; }
+    .demo-card { padding: 6px 6px 0; border-radius: 16px; }
+    .demo-frame { border-radius: 11px; }
+    .demo-cap { padding: 9px 5px 11px; gap: 7px; }
+    .demo-cap b { font-size: 13.5px; }
+    .demo-tag { font-size: 12px; }
+    .demo-time { display: none; }
+  }
+
+  /* ---------- install ---------- */
+  .panel {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    padding: 28px;
+    box-shadow: var(--shadow);
+    display: grid;
+    grid-template-columns: 1.05fr 1fr;
+    gap: 34px;
+    margin-top: 4px;
+  }
+
+  .panel p { margin: 0 0 13px; color: var(--ink-2); font-size: 14px; max-width: 30em; }
+  .panel p:last-child { margin-bottom: 0; }
+  .panel strong { color: var(--ink); font-weight: 600; }
+
+  ol.steps { counter-reset: s; list-style: none; margin: 0; padding: 0; }
+
+  ol.steps li {
+    counter-increment: s;
+    position: relative;
+    padding-left: 40px;
+    margin-bottom: 16px;
+    font-size: 14px;
+    color: var(--ink-2);
+  }
+
+  ol.steps li:last-child { margin-bottom: 0; }
+
+  ol.steps li::before {
+    content: counter(s);
+    position: absolute;
+    left: 0; top: 2px;
+    width: 26px; height: 26px;
+    border-radius: 9px;
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    font-size: 12.5px;
+    font-weight: 600;
+    display: grid;
+    place-items: center;
+  }
+
+  ol.steps b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- donate ---------- */
+  .donate {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    padding: 26px 24px 24px;
+    box-shadow: var(--shadow);
+    text-align: center;
+  }
+
+  .donate > p { margin: 0 0 16px; font-size: 15px; color: var(--ink-2); }
+  .donate > p b { color: var(--ink); font-weight: 600; }
+
+  .donate-btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+  .donate-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 0;
+    cursor: pointer;
+    color: #fff;
+    font: inherit;
+    font-size: 14.5px;
+    font-weight: 600;
+    padding: 10px 22px;
+    border-radius: 12px;
+    transition: transform 0.16s ease, filter 0.16s ease, box-shadow 0.16s ease;
+  }
+
+  .donate-btn:hover { transform: translateY(-1px); filter: brightness(1.06); }
+
+  .donate-btn.alipay {
+    background: #1677ff;
+    box-shadow: 0 10px 20px -12px rgba(22, 119, 255, 0.9);
+  }
+
+  .donate-btn.wechat {
+    background: #07c160;
+    box-shadow: 0 10px 20px -12px rgba(7, 193, 96, 0.9);
+  }
+
+  .pay-ico {
+    width: 21px; height: 21px;
+    border-radius: 6px;
+    background: #fff;
+    color: #1677ff;
+    display: grid;
+    place-items: center;
+    font-size: 13.5px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .donate-btn.wechat svg { width: 21px; height: 21px; display: block; }
+
+  /* 打赏二维码弹层 */
+  .qr-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: rgba(15, 25, 45, 0.45);
+    backdrop-filter: blur(2px);
+    display: grid;
+    place-items: center;
+    padding: 20px;
+  }
+
+  .qr-modal[hidden] { display: none; }
+
+  .qr-box {
+    position: relative;
+    background: #fff;
+    border-radius: 18px;
+    padding: 16px;
+    box-shadow: 0 24px 60px -24px rgba(15, 25, 45, 0.5);
+  }
+
+  .qr-box img {
+    width: 240px;
+    height: 240px;
+    object-fit: contain;
+    border-radius: 12px;
+    background: var(--bg-2);
+    display: block;
+  }
+
+  .qr-box p { margin: 11px 0 2px; text-align: center; font-size: 13px; color: var(--ink-2); }
+
+  .qr-close {
+    position: absolute;
+    top: 8px; right: 8px;
+    width: 26px; height: 26px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--bg-2);
+    color: var(--ink-2);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .qr-close:hover { background: var(--line); color: var(--ink); }
+
+  @media (max-width: 640px) {
+    .donate { padding: 20px 16px 18px; }
+    .donate-btn { padding: 9px 18px; font-size: 14px; }
+  }
+
+  /* ---------- footer ---------- */
+  footer {
+    padding: 34px 0 56px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 18px;
+    font-size: 12.5px;
+    color: var(--ink-3);
+  }
+
+  footer a { color: var(--ink-2); text-decoration: none; }
+  footer a:hover { color: var(--accent); }
+  footer .spacer { flex: 1; }
+
+  @media (max-width: 820px) {
+    .panel { grid-template-columns: 1fr; gap: 24px; padding: 22px; }
+  }
+
+  @media (max-width: 640px) {
+    .hero { padding: 42px 0 34px; }
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 28px; }
+    .stat { padding: 13px 15px 11px; }
+    .stat b { font-size: 21px; }
+    .grid { grid-template-columns: 1fr; }
+    .sec-head { margin-bottom: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="hero">
+    <p class="kicker">
+      <span class="name">粉笔脚本君出品</span>
+      <span class="follow">关注我</span>
+      <a class="sns xhs" href="https://www.xiaohongshu.com/user/profile/66c4370f000000001d031c0c"
+         target="_blank" rel="noopener" title="小红书 · 粉笔脚本君" aria-label="小红书">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22.405 9.879c.002.016.01.02.07.019h.725a.797.797 0 0 0 .78-.972.794.794 0 0 0-.884-.618.795.795 0 0 0-.692.794c0 .101-.002.666.001.777zm-11.509 4.808c-.203.001-1.353.004-1.685.003a2.528 2.528 0 0 1-.766-.126.025.025 0 0 0-.03.014L7.7 16.127a.025.025 0 0 0 .01.032c.111.06.336.124.495.124.66.01 1.32.002 1.981 0 .01 0 .02-.006.023-.015l.712-1.545a.025.025 0 0 0-.024-.036zM.477 9.91c-.071 0-.076.002-.076.01a.834.834 0 0 0-.01.08c-.027.397-.038.495-.234 3.06-.012.24-.034.389-.135.607-.026.057-.033.042.003.112.046.092.681 1.523.787 1.74.008.015.011.02.017.02.008 0 .033-.026.047-.044.147-.187.268-.391.371-.606.306-.635.44-1.325.486-1.706.014-.11.021-.22.03-.33l.204-2.616.022-.293c.003-.029 0-.033-.03-.034zm7.203 3.757a1.427 1.427 0 0 1-.135-.607c-.004-.084-.031-.39-.235-3.06a.443.443 0 0 0-.01-.082c-.004-.011-.052-.008-.076-.008h-1.48c-.03.001-.034.005-.03.034l.021.293c.076.982.153 1.964.233 2.946.05.4.186 1.085.487 1.706.103.215.223.419.37.606.015.018.037.051.048.049.02-.003.742-1.642.804-1.765.036-.07.03-.055.003-.112zm3.861-.913h-.872a.126.126 0 0 1-.116-.178l1.178-2.625a.025.025 0 0 0-.023-.035l-1.318-.003a.148.148 0 0 1-.135-.21l.876-1.954a.025.025 0 0 0-.023-.035h-1.56c-.01 0-.02.006-.024.015l-.926 2.068c-.085.169-.314.634-.399.938a.534.534 0 0 0-.02.191.46.46 0 0 0 .23.378.981.981 0 0 0 .46.119h.59c.041 0-.688 1.482-.834 1.972a.53.53 0 0 0-.023.172.465.465 0 0 0 .23.398c.15.092.342.12.475.12l1.66-.001c.01 0 .02-.006.023-.015l.575-1.28a.025.025 0 0 0-.024-.035zm-6.93-4.937H3.1a.032.032 0 0 0-.034.033c0 1.048-.01 2.795-.01 6.829 0 .288-.269.262-.28.262h-.74c-.04.001-.044.004-.04.047.001.037.465 1.064.555 1.263.01.02.03.033.051.033.157.003.767.009.938-.014.153-.02.3-.06.438-.132.3-.156.49-.419.595-.765.052-.172.075-.353.075-.533.002-2.33 0-4.66-.007-6.991a.032.032 0 0 0-.032-.032zm11.784 6.896c0-.014-.01-.021-.024-.022h-1.465c-.048-.001-.049-.002-.05-.049v-4.66c0-.072-.005-.07.07-.07h.863c.08 0 .075.004.075-.074V8.393c0-.082.006-.076-.08-.076h-3.5c-.064 0-.075-.006-.075.073v1.445c0 .083-.006.077.08.077h.854c.075 0 .07-.004.07.07v4.624c0 .095.008.084-.085.084-.37 0-1.11-.002-1.304 0-.048.001-.06.03-.06.03l-.697 1.519s-.014.025-.008.036c.006.01.013.008.058.008 1.748.003 3.495.002 5.243.002.03-.001.034-.006.035-.033v-1.539zm4.177-3.43c0 .013-.007.023-.02.024-.346.006-.692.004-1.037.004-.014-.002-.022-.01-.022-.024-.005-.434-.007-.869-.01-1.303 0-.072-.006-.071.07-.07l.733-.003c.041 0 .081.002.12.015.093.025.16.107.165.204.006.431.002 1.153.001 1.153zm2.67.244a1.953 1.953 0 0 0-.883-.222h-.18c-.04-.001-.04-.003-.042-.04V10.21c0-.132-.007-.263-.025-.394a1.823 1.823 0 0 0-.153-.53 1.533 1.533 0 0 0-.677-.71 2.167 2.167 0 0 0-1-.258c-.153-.003-.567 0-.72 0-.07 0-.068.004-.068-.065V7.76c0-.031-.01-.041-.046-.039H17.93s-.016 0-.023.007c-.006.006-.008.012-.008.023v.546c-.008.036-.057.015-.082.022h-.95c-.022.002-.028.008-.03.032v1.481c0 .09-.004.082.082.082h.913c.082 0 .072.128.072.128V11.19s.003.117-.06.117h-1.482c-.068 0-.06.082-.06.082v1.445s-.01.068.064.068h1.457c.082 0 .076-.006.076.079v3.225c0 .088-.007.081.082.081h1.43c.09 0 .082.007.082-.08v-3.27c0-.029.006-.035.033-.035l2.323-.003c.098 0 .191.02.28.061a.46.46 0 0 1 .274.407c.008.395.003.79.003 1.185 0 .259-.107.367-.33.367h-1.218c-.023.002-.029.008-.028.033.184.437.374.871.57 1.303a.045.045 0 0 0 .04.026c.17.005.34.002.51.003.15-.002.517.004.666-.01a2.03 2.03 0 0 0 .408-.075c.59-.18.975-.698.976-1.313v-1.981c0-.128-.01-.254-.034-.38 0 .078-.029-.641-.724-.998z"/></svg>
+      </a>
+      <a class="sns dy" href="https://v.douyin.com/4vzv3pQR3PE/"
+         target="_blank" rel="noopener" title="抖音 · 粉笔脚本君" aria-label="抖音">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>
+      </a>
+    </p>
+    <h1>把粉笔网页版，改造成<span>顺手的备考工具</span>。</h1>
+    <p class="lede">
+      备考时每天都在用粉笔刷题，于是把不顺的地方一个个改掉了。
+      9 个脚本、四类使用场景，全部本地运行，不收费、不限次数。
+    </p>
+
+    <div class="stats">
+      <div class="stat"><b>9</b><span>个脚本</span></div>
+      <div class="stat"><b>4,411</b><span>累计安装</span></div>
+      <div class="stat"><b>4</b><span>类场景</span></div>
+      <div class="stat"><b>30</b><span>天完成</span></div>
+    </div>
+  </header>
+
+  <section>
+    <div class="sec-head">
+      <h2>工具集 <em>按安装量排序</em></h2>
+    </div>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <section id="demos">
+    <div class="sec-head">
+      <h2>效果演示 <em>8 个功能，打开页面就在循环</em></h2>
+    </div>
+    <div class="demo-grid" id="demoGrid"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>怎么用 <em>三步</em></h2></div>
+    <div class="panel">
+      <div>
+        <p>
+          脚本运行在你自己的浏览器里，不改动粉笔的服务器数据，也不用注册任何账号。
+          <strong>收藏、笔记、错题</strong>都存在本机，也可以同步到你自己的 WebDAV 网盘。
+        </p>
+        <p>
+          已经自用了一个多月，桌面浏览器、安卓平板、iPad 都在跑。
+          遇到问题可以直接在对应脚本页面的「反馈」里留言。
+        </p>
+      </div>
+      <ol class="steps">
+        <li>装一个脚本管理器：<b>ScriptCat</b> 或 Tampermonkey，扩展商店里搜得到。</li>
+        <li>点任意一张卡片的「安装」，在管理器弹窗里确认。</li>
+        <li>打开 <b>fenbi.com</b> 题库页刷新一次，功能就在页面上了。</li>
+      </ol>
+    </div>
+  </section>
+
+  <section>
+    <div class="donate">
+      <p>喜欢这些脚本？<b>打赏</b>一下作者吧</p>
+      <div class="donate-btns">
+        <button class="donate-btn alipay" data-qr="assets/qr-alipay.png" data-tip="用支付宝扫一扫，请作者喝杯咖啡">
+          <span class="pay-ico" aria-hidden="true">支</span>支付宝
+        </button>
+        <button class="donate-btn wechat" data-qr="assets/qr-wechat.png" data-tip="用微信扫一扫，请作者喝杯咖啡">
+          <svg viewBox="0 0 24 24" fill="#fff" aria-hidden="true">
+            <path d="M9.4 3.6C5.7 3.6 2.8 6 2.8 9c0 1.7 1 3.3 2.5 4.3l-.7 2.1 2.4-1.2c.7.2 1.5.4 2.4.4h.5c-.2-.5-.2-.9-.2-1.4 0-3 2.9-5.4 6.4-5.4h.4c-.7-2.5-3.5-4.2-7.1-4.2zM7.2 7.9c-.5 0-.9-.4-.9-.9s.4-.9.9-.9.9.4.9.9-.4.9-.9.9zm4.7 0c-.5 0-.9-.4-.9-.9s.4-.9.9-.9.9.4.9.9-.4.9-.9.9z"/>
+            <path d="M21.2 13.5c0-2.5-2.5-4.6-5.6-4.6S10 11 10 13.5s2.5 4.6 5.6 4.6c.7 0 1.3-.1 1.9-.3l2 .9-.6-1.7c1.4-.9 2.3-2.1 2.3-3.5zm-7.5-.8c-.4 0-.8-.3-.8-.8s.4-.8.8-.8.8.3.8.8-.4.8-.8.8zm3.9 0c-.4 0-.8-.3-.8-.8s.4-.8.8-.8.8.3.8.8-.4.8-.8.8z"/>
+          </svg>微信
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <div class="qr-modal" id="qrModal" hidden>
+    <div class="qr-box">
+      <button class="qr-close" aria-label="关闭">×</button>
+      <img id="qrImg" alt="收款二维码">
+      <p id="qrTip"></p>
+    </div>
+  </div>
+
+  <footer>
+    <span>粉笔脚本君 · 粉笔网页版增强工具</span>
+    <span class="spacer"></span>
+    <a href="https://scriptcat.org/zh-CN/users/215061" target="_blank" rel="noopener" hidden>ScriptCat 主页 →</a>
+    <span hidden>安装量的数据抓取自 ScriptCat · 2026-11-01</span>
+  </footer>
+
+</div>
+
+<script>
+  const CAT_COLOR = {
+    "刷题辅助": ["--c-blue-bg", "--c-blue-fg"],
+    "排版打印": ["--c-amber-bg", "--c-amber-fg"],
+    "资料整理": ["--c-teal-bg", "--c-teal-fg"],
+    "效率增强": ["--c-slate-bg", "--c-slate-fg"]
+  };
+
+  const WORKS = [
+    {
+      id: 8352, name: "粉笔错题本", cat: "资料整理", glyph: "错",
+      desc: "一键收藏题目，按自己的错误原因分组，最多四级。支持笔记、JSON 导入导出，以及 WebDAV 同步（带冲突重试和连接诊断）。",
+      tags: ["错题整理", "WebDAV", "笔记"],
+      installs: 343, updated: "2 天前", demo: "07" },
+    {
+      id: 8270, name: "粉笔自动全开草稿", cat: "刷题辅助", glyph: "草",
+      desc: "进页面自动展开全部草稿，每题配 ABCD 字母框和笔刷面板。针对平板手写做了指针去重，Apple Pencil 和触屏笔都能一笔画成一条线。",
+      tags: ["手写草稿", "平板适配", "性能优化"],
+      installs: 906, updated: "5 天前", demo: "01" },
+    {
+      id: 8216, name: "粉笔自由折叠", cat: "刷题辅助", glyph: "折",
+      desc: "题号一点就收起题干，悬浮显示全站正确率。题目、答案、解析三组开关，还能只看错题，↑↓ 直接切题。",
+      tags: ["背题模式", "快捷键", "正确率着色"],
+      installs: 628, rating: "5.0", updated: "20 天前", demo: "02" },
+    {
+      id: 8246, name: "粉笔试卷排版打印", cat: "排版打印", glyph: "印",
+      desc: "把在线试卷排成 A4 真卷：题号悬挂缩进、屏幕直接分页、题目可跨页，打印或导出 PDF 都行。基于「火焰百合」原版二次开发。",
+      tags: ["A4 排版", "PDF 导出", "二次开发"],
+      installs: 762, updated: "1 个月前", demo: "03" },
+    {
+      id: 8256, name: "悬浮查词", cat: "资料整理", glyph: "词",
+      desc: "做逻辑填空时鼠标悬停在成语上就出释义、出处、例句和近反义。成语走本地词库秒开，词语按需联网查询。",
+      tags: ["本地词库", "离线可用", "MIT"],
+      installs: 471, updated: "18 天前", demo: "04" },
+    {
+      id: 8303, name: "粉笔一页成卷", cat: "排版打印", glyph: "卷",
+      desc: "在题目页就地套用真卷版式：宋体、首行缩进、悬挂缩进、选项 1/2/4 列可切换。只改样式，不动题目和原有交互。",
+      tags: ["就地排版", "字号可调", "无侵入"],
+      installs: 426, updated: "6 天前", demo: "08" },
+    {
+      id: 8272, name: "粉笔评论查看器", cat: "刷题辅助", glyph: "评",
+      desc: "题目页注入「查看评论」，直接调接口展示精选评论，优质的直接收藏并同步到 WebDAV。",
+      tags: ["精选评论", "收藏", "WebDAV"],
+      installs: 412, rating: "5.0", updated: "20 天前", demo: "05"
+    },
+    {
+      id: 8223, name: "试卷跳转面板", cat: "效率增强", glyph: "跳",
+      desc: "右上角悬浮年份／季／类别面板，每一季直接标着做完没做完，选好就跳转，不用在几百份里翻。",
+      tags: ["进度可视", "快速跳转", "行测"],
+      installs: 232, updated: "1 个月前", demo: "06" },
+    {
+      id: 8292, name: "一键排版打印（自选题目）", cat: "排版打印", glyph: "打",
+      desc: "标准封面、自定义页边距、字体与分页策略，可只导出选中的题目。基于「行测小助理」原版二次开发。",
+      tags: ["自选导出", "封面模板", "二次开发"],
+      installs: 231, updated: "19 天前"
+    }
+  ];
+
+  const URL_BASE = "https://scriptcat.org/zh-CN/script-show-page/";
+  const grid = document.getElementById("grid");
+
+  function render() {
+    const list = WORKS.slice().sort((a, b) => b.installs - a.installs);
+
+    grid.innerHTML = list.map((w) => {
+      const [bg, fg] = CAT_COLOR[w.cat];
+      return `
+      <article class="card">
+        <div class="card-top">
+          <div class="ico" style="background:var(${bg});color:var(${fg})">${w.glyph}</div>
+          <div>
+            <h3>${w.name}</h3>
+            <div class="meta">${w.cat}${w.rating ? ` · ★ ${w.rating}` : ""}</div>
+          </div>
+        </div>
+        <p>${w.desc}</p>
+        <div class="tags">${w.tags.map((t) => `<span>${t}</span>`).join("")}</div>
+        <div class="card-foot">
+          <span><b>${w.installs.toLocaleString()}</b> 安装</span>
+          <span>${w.updated}</span>
+          ${w.demo ? `<a href="#demo-${w.demo}" data-demo="${w.demo}" style="background:var(--bg-2);color:var(--ink-2)">演示</a>` : ""}
+          <a href="${URL_BASE}${w.id}" target="_blank" rel="noopener">安装</a>
+        </div>
+      </article>`;
+    }).join("");
+  }
+
+  render();
+
+  /* ---------- 演示动画 ---------- */
+  const DEMOS = [
+    { id: "01", file: "demo/01-draft.html",    name: "自动全开草稿", tag: "进页面，每道题的草稿区就已经全部展开", ms: 9400 },
+    { id: "02", file: "demo/02-fold.html",     name: "自由折叠",     tag: "题干一点就收起来，五个开关各管一摊",   ms: 11600 },
+    { id: "05", file: "demo/05-comments.html", name: "评论查看器",   tag: "网页版也能看精选评论，好思路直接收藏", ms: 10400 },
+    { id: "04", file: "demo/04-lookup.html",   name: "悬浮查词",     tag: "鼠标停在词上就出释义，还能跳出去查",   ms: 9800 },
+    { id: "07", file: "demo/07-mistakes.html", name: "错题本",       tag: "按自己的错因分组，不是按题型",         ms: 13600 },
+    { id: "06", file: "demo/06-jump.html",     name: "试卷跳转面板", tag: "年份／季／类别三个下拉，一键落到卷子", ms: 9600 },
+    { id: "03", file: "demo/03-print.html",    name: "试卷排版打印", tag: "言语／判断／资料全选，一次印完整份",   ms: 13600 },
+    { id: "08", file: "demo/08-onepage.html",  name: "一页成卷",     tag: "点一下，眼前这页直接套真题卷版式",     ms: 12100 }
+  ];
+
+  const demoGrid = document.getElementById("demoGrid");
+
+  demoGrid.innerHTML = DEMOS.map((d, i) => `
+    <figure class="demo-card" id="demo-${d.id}">
+      <div class="demo-frame">
+        <iframe title="${d.name} · 演示动画" data-src="${d.file}?embed=1" scrolling="no"></iframe>
+      </div>
+      <figcaption class="demo-cap">
+        <span class="demo-idx">${String(i + 1).padStart(2, "0")}</span>
+        <b>${d.name}</b>
+        <span class="demo-tag">${d.tag}</span>
+        <span class="demo-time">${(d.ms / 1000).toFixed(1)}s 循环</span>
+      </figcaption>
+    </figure>`).join("");
+
+  /* 滚到附近才加载，免得一进页面就同时跑八个动画 */
+  const demoIO = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (!e.isIntersecting) return;
+      const f = e.target.querySelector("iframe");
+      if (f && !f.getAttribute("src")) f.src = f.dataset.src;
+      demoIO.unobserve(e.target);
+    });
+  }, { rootMargin: "700px 0px" });
+
+  demoGrid.querySelectorAll(".demo-card").forEach((c) => demoIO.observe(c));
+
+  /* 卡片上的「演示」跳到对应那段 */
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest("[data-demo]");
+    if (!a) return;
+    const card = document.getElementById("demo-" + a.dataset.demo);
+    if (!card) return;
+    e.preventDefault();
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+    card.classList.add("is-target");
+    setTimeout(() => card.classList.remove("is-target"), 1500);
+  });
+  /* ---------- 打赏 ---------- */
+  const qrModal = document.getElementById("qrModal");
+  const qrImg = document.getElementById("qrImg");
+  const qrTip = document.getElementById("qrTip");
+
+  /* 收款码图片还没放进来时显示的占位图 */
+  const QR_PLACEHOLDER = "data:image/svg+xml," + encodeURIComponent(
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'>" +
+    "<rect width='120' height='120' fill='#eef2f9'/>" +
+    "<g fill='#c5cfdf'><rect x='16' y='16' width='30' height='30' rx='5'/>" +
+    "<rect x='74' y='16' width='30' height='30' rx='5'/>" +
+    "<rect x='16' y='74' width='30' height='30' rx='5'/>" +
+    "<rect x='74' y='74' width='12' height='12'/><rect x='92' y='74' width='12' height='12'/>" +
+    "<rect x='74' y='92' width='12' height='12'/><rect x='92' y='92' width='12' height='12'/></g></svg>"
+  );
+
+  document.querySelectorAll(".donate-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      qrTip.textContent = btn.dataset.tip;
+      qrImg.onerror = () => {
+        qrImg.onerror = null;
+        qrImg.src = QR_PLACEHOLDER;
+        qrTip.textContent = "收款码还没放进来 —— 把两张二维码截图发给我就行";
+      };
+      qrImg.src = btn.dataset.qr;
+      qrModal.hidden = false;
+    });
+  });
+
+  qrModal.addEventListener("click", (e) => {
+    if (e.target === qrModal || e.target.closest(".qr-close")) qrModal.hidden = true;
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") qrModal.hidden = true;
+  });
+</script>
+
+</body>
+</html>

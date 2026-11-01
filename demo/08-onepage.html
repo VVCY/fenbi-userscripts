@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>演示 08 · 粉笔一页成卷（题目页就地变卷子）</title>
+<style>
+  :root{--blue:#2f5bea;--ink:#1f2329;--ink-2:#646a73;--line:#e3e6eb}
+  @property --u{syntax:"<length>";inherits:true;initial-value:1px}
+  /* 思源宋体子集（38KB，按需联网补字的真实载体）：
+     demo 环境本机没有宋体，宋体链全部落空 → 命中这里的 Noto Serif SC */
+  @font-face{
+    font-family:'Noto Serif SC';
+    font-style:normal;font-weight:400;font-display:swap;
+    src:url('assets/noto-serif-sc-subset.woff2') format('woff2');
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    padding:34px 20px 54px;background:#EEF2F7;color:#32343A;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:960px;margin:0 auto}
+
+  /* 被作品集页面以 iframe 嵌入时：去掉标题与留白，画面铺满整块 */
+  body.embed{padding:0;background:transparent}
+  body.embed .head{display:none}
+  body.embed .wrap{max-width:none;margin:0}
+  body.embed .scene{
+    position:fixed;inset:0;aspect-ratio:auto;border-radius:0;border:0;box-shadow:none;
+  }
+
+  .head{margin:0 0 16px}
+  .head h1{font-size:19px;font-weight:600;margin:0 0 7px;letter-spacing:-.01em}
+  .head p{font-size:13px;line-height:1.7;color:#636E92;margin:0}
+  .head b{color:var(--blue);font-weight:600}
+
+  .scene{
+    position:relative;aspect-ratio:16/10;border-radius:16px;overflow:hidden;
+    background:#fff;border:1px solid rgba(50,52,58,.08);
+    box-shadow:0 1px 2px rgba(50,52,58,.05),0 18px 40px -24px rgba(50,52,58,.5);
+  }
+  .stage{position:absolute;inset:0;container-type:size}
+  .stage-in{position:absolute;inset:0;font-size:3.15cqw;--u:1em;background:#fff;overflow:hidden}
+
+  /* ---------- 顶栏 ---------- */
+  .appbar{
+    position:absolute;top:0;left:0;right:0;height:2.1em;z-index:3;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 .9em;background:#fff;border-bottom:.033em solid #eceff4;
+  }
+  .ab-l{display:flex;align-items:baseline;gap:.55em}
+  .ab-title{font-size:.47em;font-weight:600;color:#1f2329;letter-spacing:-.01em}
+  .ab-sub{font-size:.36em;color:#9aa3b2}
+  .ab-r{display:flex;align-items:center;gap:.5em}
+  .ab-tag{font-size:.35em;color:#2f5bea;background:#eef2ff;padding:.14em .42em;border-radius:.2em}
+  .ab-idx{font-size:.35em;color:#9aa3b2;font-variant-numeric:tabular-nums}
+
+  /* ---------- 题目区 ---------- */
+  .qzone{position:absolute;left:0;right:0;top:2.1em;bottom:0;width:22.4em;padding:.55em 0 0 .95em;overflow:hidden}
+
+  /* 正文字体：默认是系统黑体；点了「缺宋体时联网补字」才切到宋体链
+     （链子照抄源码 FONT_CHAIN：SimSun / 宋体 / STSong / Songti SC / 思源宋体）*/
+  .qcard{
+    --fs:15px;--hang:0;margin:0 0 .27em;color:#1f2329;
+    --fp-font:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  .qcard.serif{
+    --fp-font:"SimSun","宋体","STSong","Songti SC","STSongti-SC-Regular","Noto Serif CJK SC","Noto Serif SC","Source Han Serif SC","思源宋体",serif;
+  }
+  .qcard.typeset .stem,.qcard.typeset .ot,.qcard.typeset .qnum{font-family:var(--fp-font)}
+  .qbody{position:relative;font-size:var(--fs);padding-left:calc(2em * var(--hang))}
+  .qnum{display:block;color:#9aa3b2;font-size:.82em;line-height:1.5;font-variant-numeric:tabular-nums}
+  .qcard.typeset .qnum{
+    float:left;width:2em;margin-left:calc(-2em * var(--hang));
+    color:#1f2329;font-size:1em;line-height:1.6;text-align:left;
+  }
+  .stem{color:#1f2329;line-height:1.55}
+  .opts{display:flex;flex-wrap:wrap;list-style:none;margin:.3em 0 0;padding:0;font-size:var(--fs)}
+  .opt{display:flex;align-items:flex-start;color:#1f2329;line-height:1.6}
+  .ol{flex:none;font-variant-numeric:tabular-nums}
+  .ot{flex:1 1 auto;min-width:0}
+
+  /* ---------- 参数面板（照源码：右下 250px 白卡） ---------- */
+  .panel{
+    position:absolute;right:calc(.53*var(--u));bottom:calc(.53*var(--u));width:calc(8.33*var(--u));z-index:8;
+    background:rgba(255,255,255,.97);border:.033em solid #d5dae3;
+    border-radius:calc(.33*var(--u));box-shadow:0 .2em .66em rgba(15,23,42,.18);
+    font-size:.4em;line-height:1.5;color:#0f172a;
+  }
+  .phd{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:calc(.27*var(--u)) calc(.33*var(--u));
+    background:#f1f4f9;border-bottom:1px solid #e2e6ee;
+    border-radius:calc(.33*var(--u)) calc(.33*var(--u)) 0 0;
+    font-weight:600;color:#2563eb;
+  }
+  .phd i{font-style:italic;color:#94a3b8;font-weight:400}
+  .fold{
+    width:calc(.73*var(--u));height:calc(.73*var(--u));padding:0;line-height:1;
+    border:1px solid #cbd5e1;border-radius:calc(.2*var(--u));
+    background:#fff;color:#475569;font-size:1em;
+  }
+  .pbody{padding:calc(.27*var(--u)) calc(.33*var(--u)) calc(.33*var(--u))}
+  .prow{display:flex;align-items:center;justify-content:space-between;gap:calc(.27*var(--u));margin:0 0 calc(.23*var(--u))}
+  .prow>span{color:#475569;white-space:nowrap;font-size:1em}
+  .prow input[type=checkbox]{width:calc(.47*var(--u));height:calc(.47*var(--u));margin:0;accent-color:#2563eb}
+  .step{display:flex;align-items:center;gap:calc(.1*var(--u));width:calc(3.33*var(--u))}
+  .sbtn{
+    width:calc(.8*var(--u));height:calc(.73*var(--u));flex:0 0 auto;padding:0;line-height:1;
+    border:1px solid #cbd5e1;border-radius:calc(.2*var(--u));
+    background:#fff;color:#334155;font-size:1em;
+  }
+  .sbtn.act{background:#dbeafe;border-color:#93c5fd}
+  .sv{flex:1 1 auto;text-align:center;font-size:1em;font-variant-numeric:tabular-nums}
+  .selwrap{position:relative;width:calc(3.33*var(--u))}
+  .sel{
+    width:100%;display:flex;align-items:center;justify-content:space-between;
+    padding:calc(.1*var(--u)) calc(.2*var(--u));
+    border:1px solid #cbd5e1;border-radius:calc(.2*var(--u));
+    background:#fff;font-size:1em;color:#0f172a;
+  }
+  .sel.act{background:#dbeafe;border-color:#93c5fd}
+  .sel i{font-style:normal;color:#94a3b8;font-size:.9em}
+  .pbtns{display:flex;gap:calc(.27*var(--u));margin:calc(.07*var(--u)) 0 calc(.2*var(--u))}
+  .pbtns button{
+    flex:1;padding:calc(.13*var(--u)) 0;border:1px solid #cbd5e1;
+    border-radius:calc(.2*var(--u));background:#fff;font-size:1em;color:#334155;
+  }
+  .pstat{font-size:1em;color:#64748b;line-height:1.5}
+
+  /* 自绘下拉浮层（原生 select 无法演示展开） */
+  .dd{
+    position:absolute;right:calc(.33*var(--u));width:calc(3.33*var(--u));z-index:9;
+    background:#fff;border:1px solid #cbd5e1;border-radius:calc(.2*var(--u));
+    box-shadow:0 calc(.1*var(--u)) calc(.4*var(--u)) rgba(15,23,42,.16);
+    padding:calc(.1*var(--u));opacity:0;pointer-events:none;
+    transform-origin:top center;
+  }
+  .dopt{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:calc(.13*var(--u)) calc(.2*var(--u));
+    border-radius:calc(.13*var(--u));font-size:1em;color:#0f172a;white-space:nowrap;
+  }
+  .dopt.hov{background:#f1f5f9}
+  .dopt.cur{color:#2563eb;font-weight:600}
+
+  /* ---------- 胶囊 ---------- */
+  .chip{
+    position:absolute;right:calc(.53*var(--u));bottom:calc(11.4*var(--u));z-index:12;
+    width:calc(8.33*var(--u));
+    padding:calc(.24*var(--u)) calc(.4*var(--u));border-radius:calc(.3*var(--u));
+    background:rgba(31,35,41,.9);color:#fff;font-size:.4em;line-height:1.7;
+    opacity:0;
+  }
+  .chip.green{background:rgba(31,122,71,.94)}
+
+  /* ---------- 光标 / 涟漪 / 转场 ---------- */
+  .cursor{position:absolute;width:.66em;height:.66em;z-index:20;opacity:0;pointer-events:none}
+  .ring{
+    position:absolute;width:1.3em;height:1.3em;margin:-.65em 0 0 -.65em;
+    border-radius:50%;border:.055em solid rgba(47,91,234,.55);
+    background:rgba(47,91,234,.13);opacity:0;z-index:19;pointer-events:none;
+  }
+  .flash{position:absolute;inset:0;background:#fff;opacity:0;z-index:60;pointer-events:none}
+</style>
+</head>
+<body>
+<script>if(location.search.indexOf('embed')>-1)document.body.classList.add('embed');</script>
+
+<div class="wrap">
+  <div class="head">
+    <h1>粉笔一页成卷 · 题目页就地变卷子</h1>
+    <p>点一下面板上的开关，<b>眼前这页直接套用真题卷版式</b>：宋体 22px、行高 1.6、首行缩进 2 字、题号悬挂；选项按可用宽自动排 4 / 2 / 1 列。</p>
+  </div>
+
+  <div class="scene">
+    <div class="stage">
+      <div class="stage-in" id="scene">
+
+        <div class="appbar">
+          <div class="ab-l">
+            <span class="ab-title">2026年国考《行测》题（网友回忆版）</span>
+            <span class="ab-sub">第三部分</span>
+          </div>
+          <div class="ab-r">
+            <span class="ab-tag">言语理解</span>
+            <span class="ab-idx">17 / 40</span>
+          </div>
+        </div>
+
+        <div class="qzone" id="qzone">
+          <div class="qcard" id="q0">
+            <div class="qbody">
+              <div class="qnum">17.</div>
+              <div class="stem">中国古典诗词的魅力，很大程度上来自它把复杂的情感压缩进极少的字数里。读“大江东去”，读“杨柳岸晓风残月”，眼前浮现的不只是文字，还有一整个时代的气象。这种<span class="blank">________</span>的表达，正是汉语独有的美学。</div>
+            </div>
+            <ul class="opts">
+              <li class="opt"><span class="ol">A．</span><span class="ot">言简意赅</span></li>
+              <li class="opt"><span class="ol">B．</span><span class="ot">惜墨如金</span></li>
+              <li class="opt"><span class="ol">C．</span><span class="ot">微言大义</span></li>
+              <li class="opt"><span class="ol">D．</span><span class="ot">字斟句酌</span></li>
+            </ul>
+          </div>
+
+          <div class="qcard" id="q1">
+            <div class="qbody">
+              <div class="qnum">18.</div>
+              <div class="stem">传统村落的保护投入不小，但不少地方把力气花在修缮祠堂、粉刷墙面上。房子新了，游客也来了，可村里的年轻人还是走了。这段文字意在说明：</div>
+            </div>
+            <ul class="opts">
+              <li class="opt"><span class="ol">A．</span><span class="ot">村落保护不能只停留在建筑修缮的层面</span></li>
+              <li class="opt"><span class="ol">B．</span><span class="ot">缺少日常生活的村落难以真正被保护</span></li>
+              <li class="opt"><span class="ol">C．</span><span class="ot">乡村旅游是传统村落振兴的有效途径</span></li>
+              <li class="opt"><span class="ol">D．</span><span class="ot">年轻人外流是村落衰败的最主要原因</span></li>
+            </ul>
+          </div>
+
+          <div class="qcard" id="q2">
+            <div class="qbody">
+              <div class="qnum">19.</div>
+              <div class="stem">科学研究从来不是<span class="blank">________</span>的坦途，那些看似灵光乍现的突破，背后往往是数年如一日的反复试错与枯燥积累。</div>
+            </div>
+            <ul class="opts">
+              <li class="opt"><span class="ol">A．</span><span class="ot">一蹴而就</span></li>
+              <li class="opt"><span class="ol">B．</span><span class="ot">一帆风顺</span></li>
+              <li class="opt"><span class="ol">C．</span><span class="ot">轻而易举</span></li>
+              <li class="opt"><span class="ol">D．</span><span class="ot">一挥而就</span></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="panel" id="panel">
+          <div class="phd" id="phd">
+            <span>粉笔一页成卷 <i>粉笔脚本君出品</i></span>
+            <button class="fold" type="button">−</button>
+          </div>
+          <div class="pbody">
+            <div class="prow"><span>启用页面内排版</span><input type="checkbox" id="cbOn" /></div>
+            <div class="prow" id="rowWf"><span>缺宋体时联网补字</span><input type="checkbox" id="cbWf" /></div>
+            <div class="prow">
+              <span>正文字号 (px)</span>
+              <div class="step"><button class="sbtn" id="fsMinus" type="button">−</button><span class="sv" id="fsVal">22</span><button class="sbtn" id="fsPlus" type="button">＋</button></div>
+            </div>
+            <div class="prow">
+              <span>正文行高</span>
+              <div class="step"><button class="sbtn" type="button">−</button><span class="sv" id="lhVal">1.6</span><button class="sbtn" type="button">＋</button></div>
+            </div>
+            <div class="prow" id="colsRow">
+              <span>选项列数</span>
+              <div class="selwrap">
+                <button class="sel" id="selCols" type="button"><span id="colsVal">自动（4/2/1）</span><i>▾</i></button>
+                <div class="dd" id="dd">
+                  <div class="dopt" data-v="auto"><span>自动（4/2/1）</span></div>
+                  <div class="dopt" data-v="1"><span>1 列</span></div>
+                  <div class="dopt" data-v="2"><span>2 列</span></div>
+                  <div class="dopt" data-v="4"><span>4 列</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="prow">
+              <span>题间距 (px)</span>
+              <div class="step"><button class="sbtn" id="qsMinus" type="button">−</button><span class="sv" id="qsVal">18</span><button class="sbtn" id="qsPlus" type="button">＋</button></div>
+            </div>
+            <div class="pbtns"><button type="button">恢复默认</button><button type="button">重新排版</button></div>
+            <div class="pstat" id="stat">已排版 0 道题</div>
+            <div class="pstat" id="fstat">字体：已停用</div>
+          </div>
+        </div>
+
+        <div class="chip" id="chipB"></div>
+        <div class="chip green" id="chipG"></div>
+
+        <div class="cursor" id="cursor">
+          <svg viewBox="0 0 24 24" width="100%" height="100%">
+            <path d="M3 2 L3 19.2 L7.4 15 L10.2 21.4 L13.4 20 L10.6 13.7 L17 13.4 Z"
+                  fill="#fff" stroke="#32343A" stroke-width="1.4" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="ring" id="r0"></div>
+        <div class="ring" id="r1"></div>
+        <div class="ring" id="r2"></div>
+        <div class="ring" id="r3"></div>
+        <div class="flash" id="flash"></div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const sceneEl = document.getElementById('scene');
+  const stageEl = document.querySelector('.stage');
+  const cards   = [0,1,2].map(i => document.getElementById('q' + i));
+  const stems   = cards.map(c => c.querySelector('.stem'));
+  const optsAll = cards.map(c => c.querySelector('.opts'));
+  const optsLi  = cards.map(c => [...c.querySelectorAll('.opt')]);
+  const qzone   = document.getElementById('qzone');
+
+  /* 每题最长选项的字数（真实脚本用 canvas 实测文字宽，这里按字数×字号等价换算） */
+  const MAXCH = cards.map(c =>
+    Math.max(...[...c.querySelectorAll('.ot')].map(t => t.textContent.trim().length)));
+
+  const el = {
+    on: document.getElementById('cbOn'),
+    wf: document.getElementById('cbWf'),
+    fsVal: document.getElementById('fsVal'),
+    lhVal: document.getElementById('lhVal'),
+    qsVal: document.getElementById('qsVal'),
+    colsVal: document.getElementById('colsVal'),
+    sel: document.getElementById('selCols'),
+    dd: document.getElementById('dd'),
+    fsMinus: document.getElementById('fsMinus'),
+    qsPlus: document.getElementById('qsPlus'),
+    stat: document.getElementById('stat'),
+    fstat: document.getElementById('fstat'),
+    panel: document.getElementById('panel'),
+    chipB: document.getElementById('chipB'),
+    chipG: document.getElementById('chipG'),
+    cursor: document.getElementById('cursor'),
+    ring: [0,1,2,3].map(i => document.getElementById('r' + i)),
+    flash: document.getElementById('flash')
+  };
+  const dOpts = [...document.querySelectorAll('.dopt')];
+
+  /* ---------------- 时间轴 ---------------- */
+  const T = {
+    CHIP1: 460, CHIP1_OUT: 1620,
+    CUR_IN: 660, CUR_ON: 1660,
+    ON: 1760, ON_END: 2200,
+    CHIP2: 2300, CHIP2_OUT: 2900,          /* 版式排好了，但这台机器没宋体 */
+    CUR_WF: 2420, WF: 2660,                /* 光标移到「缺宋体时联网补字」并点上 */
+    WF_OK: 3300,                           /* 补字完成，字真的变宋体 */
+    CHIP3: 3420, CHIP3_OUT: 4420,
+    CUR_DD1: 4560, DD1: 4740, DD1_END: 4960,
+    CUR_4: 5060, P4: 5240, P4_END: 5580,
+    CUR_DD2: 5800, DD2: 5980, DD2_END: 6200,
+    CUR_A: 6280, PA: 6480, PA_END: 6820,
+    CUR_FS: 7060, FS1: 7240, FS2: 7500,
+    CUR_QS: 7780, QS1: 7980, QS2: 8230, QS3: 8480,
+    CUR_TITLE: 9500,
+    GREEN: 9740, GREEN_OUT: 11120,
+    OUT: 11520
+  };
+  const CYCLE = 12100;
+  const REFLOW = 2220;                     // 选项归位列数：放在排版动画结束（ON_END=2200）后，字号定型再判档，避免中途 4→2 抖动
+  const CFG = { fs: 22, lh: 1.6, qs: 18 };
+
+  /* ---------------- 工具 ---------------- */
+  const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+  const ease  = k => k < .5 ? 2*k*k : 1 - Math.pow(-2*k + 2, 2) / 2;
+  const lerp  = (a,b,k) => a + (b-a) * k;
+  const lerp2 = (a,b,k) => [a[0] + (b[0]-a[0]) * k, a[1] + (b[1]-a[1]) * k];
+  const seg   = (t,a,b) => clamp((t-a) / (b-a), 0, 1);
+
+  let P = {};
+  function emOf(){ return parseFloat(getComputedStyle(sceneEl).fontSize); }
+  function ctr(node){
+    const r = node.getBoundingClientRect(), s = sceneEl.getBoundingClientRect(), e = emOf();
+    return [ (r.left + r.width/2 - s.left) / e, (r.top + r.height/2 - s.top) / e ];
+  }
+
+  function measure(){
+    const row = document.getElementById('colsRow');
+    el.dd.style.top = (row.offsetTop + row.offsetHeight + 1) + 'px';
+    P.on      = ctr(el.on);
+    P.sel     = ctr(el.sel);
+    P.d4      = ctr(dOpts[3]);
+    P.da      = ctr(dOpts[0]);
+    P.fsMinus = ctr(el.fsMinus);
+    P.qsPlus  = ctr(el.qsPlus);
+    P.title   = ctr(document.getElementById('phd'));
+    P.wf      = ctr(document.getElementById('rowWf') || document.getElementById('cbWf'));
+  }
+
+  /* 自动列数：4 → 2 → 1 逐档试，放得下就取更宽的档（同源码 pickCols） */
+  /* 列宽取整：真实脚本用 Math.floor(px) 落成整数，这里再留 1px 余量，
+     否则 k 列的总宽会因浮点/取整比可用宽多出零点几像素，浏览器就把最后一项换行，
+     摆出「3+1」这种半成品姿态 */
+  const colWidth = (avail, gap, k) =>
+    k <= 1 ? Math.floor(avail) - 1 : Math.max(40, Math.floor((avail - gap * (k-1)) / k) - 1);
+
+  function targetCols(ci, avail, fs, gap){
+    const n = optsLi[ci].length;
+    const maxK = n >= 4 ? 4 : 2;
+    const need = MAXCH[ci] * fs + fs * 2.5;
+    const list = maxK === 4 ? [4, 2] : [2];
+    for (const k of list){
+      const cw = (avail - gap * (k-1)) / k;
+      if (need <= cw) return { k, w: colWidth(avail, gap, k) };
+    }
+    return { k: 1, w: colWidth(avail, gap, 1) };
+  }
+
+
+  /* ---------------- 渲染 ---------------- */
+  function render(t){
+    /* 状态行文字会改变面板高度（进而移动面板里所有控件的位置），
+       所以先把文字写进 DOM，再测量，避免涟漪/光标比目标慢一帧 */
+    const typesetPre  = t >= T.ON + 60;
+    const fourColsPre = t >= T.P4 && t < T.PA;
+    const serifPre    = t >= T.WF_OK;
+    el.stat.textContent = '已排版 ' + (typesetPre ? cards.length : 0) + ' 道题 · ' + (fourColsPre ? '4 列' : '列数自动');
+    if (!typesetPre)      el.fstat.textContent = '字体：已停用';
+    else if (serifPre)    el.fstat.textContent = '字体：思源宋体（联网补字·Noto Serif SC） · 已命中宋体';
+    else if (t >= T.WF)   el.fstat.textContent = '字体：本机字体（正在尝试联网补字…） · 未命中宋体（回退黑体）';
+    else                  el.fstat.textContent = '字体：本机字体（已关闭联网补字） · 未命中宋体（回退黑体）';
+    el.wf.checked = t >= T.WF;
+
+    measure();                                               // 每帧实时量：面板高度会随状态行文字变化
+    const S = stageEl.getBoundingClientRect().width / 960;   // 等比因子（960 为设计基准）
+    const k = ease(seg(t, T.ON, T.ON_END));                   // 排版进度 0→1
+    const typeset = t >= T.ON + 60;
+
+    /* 面板参数 */
+    const fsDown = seg(t, T.FS1, T.FS1 + 220) + seg(t, T.FS2, T.FS2 + 220);
+    const qsUp   = seg(t, T.QS1, T.QS1 + 200) + seg(t, T.QS2, T.QS2 + 200) + seg(t, T.QS3, T.QS3 + 200);
+    const fs = (lerp(15, CFG.fs, k) - fsDown) * S;
+    const lh = lerp(1.50, CFG.lh, k);
+    const qs = (lerp(8, CFG.qs, k) + qsUp) * S;
+    const hang = k;
+
+    const fourCols = t >= T.P4 && t < T.PA;
+    const reflow = t >= REFLOW;            // 选项开始归位到目标列数的时刻
+
+    cards.forEach((card, ci) => {
+      card.classList.toggle('typeset', typeset);
+      card.classList.toggle('serif', t >= T.WF_OK);
+      card.style.setProperty('--fs', fs.toFixed(2) + 'px');
+      card.style.setProperty('--hang', hang.toFixed(3));
+      card.style.marginBottom = qs.toFixed(1) + 'px';
+
+      const stem = stems[ci];
+      stem.style.lineHeight = lh.toFixed(3);
+      stem.style.textIndent = typeset ? (hang * 2).toFixed(3) + 'em' : '0em';
+      stem.style.textAlign = typeset ? 'justify' : 'left';
+
+      const opts = optsAll[ci];
+      const gap = 18 * S;
+      opts.style.marginLeft = (hang * 2 * fs).toFixed(2) + 'px';
+      const avail = opts.clientWidth || 1;
+
+      /* 目标列数：auto 或手动 4 列。列数只做整数档位的直切，宽度绝不插值——
+         一旦插值，中间宽度下 flex 必然摆出 3+1，看着像没排完。
+         手动 4 列只作用在「本来就并得下多列」的短选项题上：长选项题强上 4 列会
+         被挤成四条窄柱（像没排完），所以它保持原样不动 */
+      const auto = targetCols(ci, avail, fs, gap);
+      const kCols = typeset && reflow ? (fourCols && auto.k >= 2 ? 4 : auto.k) : 1;
+      const w = kCols === 1 ? colWidth(avail, gap, 1) : colWidth(avail, gap, kCols);
+
+      opts.style.columnGap = gap.toFixed(2) + 'px';
+      opts.style.rowGap = (lerp(4, 0.5 * fs, k)).toFixed(2) + 'px';
+      opts.style.marginTop = (lerp(2, 0.3 * fs, k)).toFixed(2) + 'px';
+
+      optsLi[ci].forEach((li, i) => {
+        li.style.flex = '0 0 ' + w.toFixed(2) + 'px';
+        li.style.maxWidth = '100%';
+        li.style.lineHeight = lh.toFixed(3);
+        li.style.marginBottom = '0';
+        li.querySelector('.ol').style.marginRight = (fs * 0.16).toFixed(2) + 'px';
+
+        /* 列数切换的落位：只动 transform / opacity，不动宽度，所以不会产生怪排布 */
+        const settle = Math.max(
+          ease(seg(t, REFLOW + i * 45, REFLOW + 240 + i * 45)),
+          ease(seg(t, T.P4 + i * 30, T.P4 + 220 + i * 30)),
+          ease(seg(t, T.PA + i * 30, T.PA + 220 + i * 30))
+        );
+        if (typeset && settle < 1){
+          li.style.transform = 'translateY(' + ((1 - settle) * 6).toFixed(2) + 'px)';
+          li.style.opacity = (0.5 + 0.5 * settle).toFixed(3);
+        } else {
+          li.style.transform = '';
+          li.style.opacity = '';
+        }
+      });
+    });
+
+    /* 面板数值 */
+    el.on.checked = t >= T.ON;
+    el.fsVal.textContent = Math.round(fs / S);
+    el.lhVal.textContent = (Math.round(lh * 10) / 10).toFixed(1);
+    el.qsVal.textContent = Math.round(qs / S);
+    el.colsVal.textContent = fourCols ? '4 列' : '自动（4/2/1）';
+
+    /* 按钮按下态（源码 :active #dbeafe） */
+    el.fsMinus.classList.toggle('act', (t>=T.FS1&&t<T.FS1+150) || (t>=T.FS2&&t<T.FS2+150));
+    el.qsPlus.classList.toggle('act', (t>=T.QS1&&t<T.QS1+150) || (t>=T.QS2&&t<T.QS2+150) || (t>=T.QS3&&t<T.QS3+150));
+    el.sel.classList.toggle('act', (t>=T.DD1&&t<T.DD1+150) || (t>=T.DD2&&t<T.DD2+150));
+
+    /* 下拉浮层 */
+    const ddOpen = (t >= T.DD1 + 40 && t < T.P4 - 40) || (t >= T.DD2 + 40 && t < T.PA - 40);
+    const ddIn = Math.max(
+      ease(seg(t, T.DD1 + 40, T.DD1_END)) * (1 - ease(seg(t, T.P4 - 160, T.P4 - 40))),
+      ease(seg(t, T.DD2 + 40, T.DD2_END)) * (1 - ease(seg(t, T.PA - 160, T.PA - 40)))
+    );
+    el.dd.style.opacity = ddIn;
+    el.dd.style.transform = 'translateY(' + ((1 - ddIn) * -6).toFixed(1) + 'px) scale(' + (0.98 + ddIn * 0.02).toFixed(3) + ')';
+    el.dd.style.pointerEvents = ddOpen ? 'auto' : 'none';
+
+    const hov4 = (t >= T.CUR_4 && t < T.P4) || (t >= T.P4 && t < T.P4 + 120);
+    const hovA = (t >= T.CUR_A && t < T.PA) || (t >= T.PA && t < T.PA + 120);
+    dOpts.forEach((d, i) => {
+      d.classList.toggle('cur', i === (fourCols ? 3 : 0));
+      d.classList.toggle('hov', (i === 3 && hov4) || (i === 0 && hovA));
+    });
+
+    /* 状态行 */
+    /* （状态行与补字开关已在函数开头写好，这里不再重复） */
+
+    /* 胶囊 */
+    const chipStages = [
+      [T.CHIP1, T.CHIP1_OUT, '网页版原样 · 黑体、行挤、题号不悬挂'],
+      [T.CHIP2, T.CHIP2_OUT, '版式已经套上了 —— 但这台机器没装宋体，字还是黑体'],
+      [T.CHIP3, T.CHIP3_OUT, '点开补字 · 联网取一份思源宋体，这才是真题卷的字']
+    ];
+    let chipTxt = '', chipA = 0;
+    chipStages.forEach(([a, b, txt]) => {
+      if (t < a || t >= b) return;
+      const al = ease(seg(t, a, a + 240)) * (1 - ease(seg(t, b - 220, b)));
+      if (al > chipA){ chipA = al; chipTxt = txt; }
+    });
+    el.chipB.textContent = chipTxt;
+    el.chipB.style.opacity = chipA;
+
+    el.chipG.textContent = '版式 · 字体 · 列数，都在这页就地调好';
+    el.chipG.style.opacity =
+      ease(seg(t, T.GREEN, T.GREEN + 280)) * (1 - ease(seg(t, T.GREEN_OUT - 240, T.GREEN_OUT)));
+
+    /* 光标 */
+    let c;
+    if (t < T.CUR_ON)        c = lerp2([15.4, 14.2], P.on, ease(seg(t, T.CUR_IN, T.CUR_ON)));
+    else if (t < T.CUR_WF)   c = P.on;
+    else if (t < T.WF)       c = lerp2(P.on, P.wf, ease(seg(t, T.CUR_WF, T.WF - 60)));
+    else if (t < T.CUR_DD1)  c = P.wf;
+    else if (t < T.DD1)      c = lerp2(P.wf, P.sel, ease(seg(t, T.CUR_DD1, T.DD1 - 60)));
+    else if (t < T.CUR_4)    c = P.sel;
+    else if (t < T.P4)       c = lerp2(P.sel, P.d4, ease(seg(t, T.CUR_4, T.P4 - 60)));
+    else if (t < T.CUR_DD2)  c = P.d4;
+    else if (t < T.DD2)      c = lerp2(P.d4, P.sel, ease(seg(t, T.CUR_DD2, T.DD2 - 60)));
+    else if (t < T.CUR_A)    c = P.sel;
+    else if (t < T.PA)       c = lerp2(P.sel, P.da, ease(seg(t, T.CUR_A, T.PA - 60)));
+    else if (t < T.CUR_FS)   c = P.da;
+    else if (t < T.FS1)      c = lerp2(P.da, P.fsMinus, ease(seg(t, T.CUR_FS, T.FS1 - 40)));
+    else if (t < T.CUR_QS)   c = P.fsMinus;
+    else if (t < T.QS1)      c = lerp2(P.fsMinus, P.qsPlus, ease(seg(t, T.CUR_QS, T.QS1 - 40)));
+    else if (t < T.CUR_TITLE) c = P.qsPlus;
+    else                     c = lerp2(P.qsPlus, P.title, ease(seg(t, T.CUR_TITLE, T.CUR_TITLE + 420)));
+
+    el.cursor.style.left = c[0].toFixed(2) + 'em';
+    el.cursor.style.top  = c[1].toFixed(2) + 'em';
+    el.cursor.style.opacity = ease(seg(t, T.CUR_IN, T.CUR_IN + 240)) * (1 - ease(seg(t, T.GREEN - 100, T.GREEN + 200)));
+
+    /* 涟漪 */
+    el.ring.forEach(r => { r.style.opacity = 0; });
+    const rings = [
+      [T.ON - 80, T.ON + 320, P.on, 0],
+      [T.WF - 80, T.WF + 320, P.wf, 3],
+      [T.P4 - 80, T.P4 + 300, P.d4, 1],
+      [T.PA - 80, T.PA + 300, P.da, 2]
+    ];
+    rings.forEach(([a, b, p, i]) => {
+      const kk = seg(t, a, b);
+      if (kk > 0 && kk < 1){
+        const r = el.ring[i];
+        r.style.left = p[0] + 'em';
+        r.style.top  = p[1] + 'em';
+        r.style.opacity = (1 - kk) * 0.95;
+        r.style.transform = 'scale(' + (0.35 + kk * 1.35).toFixed(3) + ')';
+      }
+    });
+
+    /* 转场 */
+    let a = 0;
+    if (t < 300) a = 1 - seg(t, 20, 300);
+    else if (t >= T.OUT) a = seg(t, T.OUT, T.OUT + 300);
+    el.flash.style.opacity = a;
+  }
+
+  let start = performance.now(), paused = false;
+  function loop(now){
+    if (!paused) render((now - start) % CYCLE);
+    requestAnimationFrame(loop);
+  }
+  function boot(){
+    /* 先把补字的思源宋体子集加载好再开播，避免动画中途字体才就绪 */
+    const ready = (document.fonts && document.fonts.load)
+      ? Promise.all([document.fonts.load('22px "Noto Serif SC"', '国'), document.fonts.ready]).catch(() => {})
+      : Promise.resolve();
+    ready.then(() => {
+      measure();
+      render(0);
+      const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reduce){ render(T.PA_END); paused = true; return; }
+      requestAnimationFrame(loop);
+    });
+  }
+  window.__setT = function(t){ paused = true; render(t); };
+  window.__play = function(){ paused = false; start = performance.now(); };
+  window.addEventListener('resize', () => { measure(); render(0); });
+
+  if (document.readyState === 'complete') boot();
+  else window.addEventListener('load', boot);
+})();
+</script>
+</body>
+</html>

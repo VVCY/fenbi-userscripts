@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>演示 06 · 试卷跳转面板（三个下拉，一键到卷子）</title>
+<style>
+  :root{
+    --blue:#1f7cf6;
+    --blue-2:#3d8ef7;
+    --ink:#1f2329;
+    --ink-2:#646a73;
+    --ink-3:#8a9099;
+    --line:#e3e6eb;
+  }
+  @property --u{syntax:"<length>";inherits:true;initial-value:1px}
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    padding:34px 20px 54px;background:#EEF2F7;color:#32343A;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:960px;margin:0 auto}
+
+  /* 被作品集页面以 iframe 嵌入时：去掉标题与留白，画面铺满整块 */
+  body.embed{padding:0;background:transparent}
+  body.embed .head{display:none}
+  body.embed .wrap{max-width:none;margin:0}
+  body.embed .scene{
+    position:fixed;inset:0;aspect-ratio:auto;border-radius:0;border:0;box-shadow:none;
+  }
+
+  .head{margin:0 0 16px}
+  .head h1{font-size:19px;font-weight:600;margin:0 0 7px;letter-spacing:-.01em}
+  .head p{font-size:13px;line-height:1.7;color:#636E92;margin:0}
+  .head b{color:var(--blue);font-weight:600}
+
+  .scene{
+    position:relative;aspect-ratio:16/10;border-radius:16px;overflow:hidden;
+    background:#fff;border:1px solid rgba(50,52,58,.08);
+    box-shadow:0 1px 2px rgba(50,52,58,.05),0 18px 40px -24px rgba(50,52,58,.5);
+  }
+  .stage{position:absolute;inset:0;container-type:size}
+  .stage-in{position:absolute;inset:0;font-size:3.15cqw;--u:1em;background:#fff;overflow:hidden}
+
+  /* ---------- 顶栏 ---------- */
+  .appbar{
+    position:absolute;top:0;left:0;right:0;height:2.1em;z-index:6;
+    display:flex;align-items:center;gap:.7em;padding:0 1em;
+    background:#fff;border-bottom:.06em solid #eef1f6;
+  }
+  .appbar .back{font-size:.44em;color:var(--blue)}
+  .appbar .ttl{font-size:.46em;color:var(--ink);font-weight:500}
+  .appbar .cr{font-size:.36em;color:var(--ink-3);margin-left:auto;padding-right:.2em}
+
+  /* ---------- 模考列表 ---------- */
+  .list{position:absolute;left:0;right:0;top:2.1em;bottom:0;padding:.55em 1.1em 0}
+  .li{
+    display:flex;align-items:center;gap:.6em;padding:.5em .7em;margin-bottom:.34em;
+    background:#fff;border:.033em solid #eef1f6;border-radius:.3em;
+  }
+  .li .lt{font-size:.42em;color:var(--ink);line-height:1.5}
+  .li .lm{font-size:.34em;color:var(--ink-3);margin-top:.1em}
+  .li .lb{
+    margin-left:auto;flex:none;font-size:.36em;color:var(--blue);
+    border:.033em solid rgba(31,124,246,.4);border-radius:.24em;padding:.26em .5em;background:#f2f7ff;
+  }
+  .li.dim{opacity:.55}
+
+  /* ---------- 跳转面板 ---------- */
+  .panel{
+    position:absolute;top:.53em;right:.53em;width:9.9em;z-index:12;opacity:0;
+    background:#fff;border:.033em solid var(--line);border-radius:.4em;
+    box-shadow:0 .26em .9em rgba(0,0,0,.16);overflow:hidden;
+  }
+  .phd{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:calc(.33*var(--u)) calc(.46*var(--u));
+    background:var(--blue);color:#fff;font-size:.46em;font-weight:600;
+  }
+  .pmin{font-size:.86em;font-weight:400;background:rgba(255,255,255,.22);border-radius:.2em;padding:.1em .4em}
+  .pbd{padding:.4em .46em .46em}
+  .prow{display:flex;align-items:center;margin-bottom:.33em}
+  .plb{width:calc(1.72*var(--u));flex:none;font-size:.43em;color:var(--ink-2)}
+  .sel{
+    flex:1;display:flex;align-items:center;justify-content:space-between;
+    height:calc(1.06*var(--u));padding:0 calc(.26*var(--u));
+    border:.033em solid #dcdfe6;border-radius:calc(.26*var(--u));
+    font-size:.43em;color:var(--ink);background:#fff;
+  }
+  .sel.on{border-color:var(--blue)}
+  .sel i{
+    font-style:normal;width:0;height:0;border-left:.16em solid transparent;border-right:.16em solid transparent;
+    border-top:.18em solid #909399;margin-left:.2em;
+  }
+  .pgo{
+    height:calc(1.19*var(--u));border-radius:calc(.26*var(--u));background:var(--blue);color:#fff;
+    font-size:.46em;font-weight:600;display:flex;align-items:center;justify-content:center;margin-top:calc(.12*var(--u));
+  }
+  .pgo.on{background:var(--blue-2)}
+  .pst{margin-top:.3em;font-size:.4em;color:var(--ink-3);line-height:1.35;min-height:.9em}
+
+  /* ---------- 自绘下拉浮层 ---------- */
+  .dd{
+    position:absolute;z-index:14;opacity:0;background:#fff;
+    border:.033em solid var(--line);border-radius:.26em;
+    box-shadow:0 .2em .6em rgba(0,0,0,.16);padding:.14em;overflow:hidden;
+  }
+  .dopt{font-size:.42em;color:var(--ink);padding:calc(.24*var(--u)) calc(.34*var(--u));border-radius:calc(.16*var(--u));line-height:1.5;white-space:nowrap}
+  .dopt.on{background:#eaf3ff;color:var(--blue)}
+  .dopt.cur{font-weight:600}
+
+  /* ---------- 跳转后的试卷页 ---------- */
+  .paper{
+    position:absolute;inset:0;z-index:20;background:#fff;transform:translateX(101%);
+    display:flex;flex-direction:column;
+  }
+  .pbar{
+    height:2.1em;flex:none;display:flex;align-items:center;gap:.5em;padding:0 1em;
+    border-bottom:.06em solid #eef1f6;background:#fff;
+  }
+  .pbar .pt{font-size:.44em;color:var(--ink);font-weight:500}
+  .pbar .ptag{font-size:.32em;color:#178E70;background:#E9F8F3;border-radius:1em;padding:.24em .5em}
+  .pbody{flex:1;padding:.9em 2.6em 0 2.2em;position:relative}
+  .psub{font-size:.36em;color:var(--blue);margin-bottom:.5em;letter-spacing:.06em}
+  .pq{font-size:.44em;line-height:1.95;color:var(--ink);text-align:justify;margin-bottom:.5em}
+  .pop{display:flex;align-items:flex-start;gap:.4em;padding:.26em 0}
+  .pop b{flex:none;font-size:.36em;font-weight:400;color:var(--ink-2);width:1em}
+  .pop span{font-size:.42em;line-height:1.55;color:var(--ink)}
+
+  /* ---------- 光标 / 涟漪 / 提示 ---------- */
+  .cursor{position:absolute;left:0;top:0;width:.8em;height:.8em;z-index:30;pointer-events:none;opacity:0}
+  .cursor svg{width:100%;height:100%;display:block;filter:drop-shadow(0 .06em .12em rgba(0,0,0,.28))}
+  .ring{
+    position:absolute;left:0;top:0;width:.68em;height:.68em;border-radius:50%;
+    border:.075em solid rgba(31,124,246,.6);z-index:29;opacity:0;pointer-events:none;
+  }
+  .chip{position:absolute;left:1.1em;bottom:.9em;z-index:26;opacity:0}
+  .chip .tx{
+    display:flex;align-items:center;gap:.4em;font-size:.5em;line-height:1;
+    padding:.62em .85em;border-radius:2em;white-space:nowrap;
+    background:rgba(255,255,255,.97);border:.07em solid #E9EDF4;
+    box-shadow:0 .2em .7em -.25em rgba(50,52,58,.35);
+  }
+  .chip .d{width:.5em;height:.5em;border-radius:50%;flex:none}
+  .chip.ok .tx{color:#178E70;border-color:rgba(43,200,160,.45)}
+  .chip.ok .d{background:#2BC8A0}
+
+  .flash{position:absolute;inset:0;background:#fff;z-index:40;opacity:0;pointer-events:none}
+
+  .cap{margin:12px 2px 0;font-size:12.5px;color:#636E92;display:flex;gap:14px;flex-wrap:wrap}
+  .cap span{display:flex;align-items:center;gap:6px}
+  .cap em{width:7px;height:7px;border-radius:50%;display:block;font-style:normal}
+  .cap .a em{background:var(--blue)}
+  .cap .b em{background:#2BC8A0}
+</style>
+</head>
+<body>
+<script>if(location.search.indexOf('embed')>-1)document.body.classList.add('embed');</script>
+
+<div class="wrap">
+  <div class="head">
+    <h1>演示 06 · 试卷跳转面板（三个下拉，一键到卷子）</h1>
+    <p>粉笔的历年真题、模考大赛是一条长长的列表，想找「2027 年第三十六季副省级」得一页页往下翻。<b>右上角这块面板把「年份 / 第几季 / 类别」拆成三个下拉，选完点一下就落到那张卷子上</b>；季选项后面还跟着真实完成次数（接口 finishCount），顺手就知道哪季还没做。</p>
+  </div>
+
+  <div class="scene">
+    <div class="stage">
+      <div class="stage-in" id="scene">
+
+        <div class="appbar">
+          <span class="back">‹ 返回</span>
+          <span class="ttl">行测 · 历年真题模考大赛</span>
+          <span class="cr">共 186 份</span>
+        </div>
+
+        <div class="list" id="list">
+          <div class="li"><div><div class="lt">2027年国考第三十六季行测模考大赛（行政执法类）</div><div class="lm">130 题 · 120 分钟 · 已完成 2 次</div></div><span class="lb">开始做题</span></div>
+          <div class="li"><div><div class="lt">2027年国考第三十六季行测模考大赛（副省级）</div><div class="lm">135 题 · 120 分钟 · 已完成 1 次</div></div><span class="lb">开始做题</span></div>
+          <div class="li dim"><div><div class="lt">2027年国考第三十六季行测模考大赛（地市级）</div><div class="lm">130 题 · 120 分钟 · 未完成</div></div><span class="lb">开始做题</span></div>
+          <div class="li dim"><div><div class="lt">2027年国考第三十五季行测模考大赛（行政执法类）</div><div class="lm">130 题 · 120 分钟 · 未完成</div></div><span class="lb">开始做题</span></div>
+          <div class="li dim"><div><div class="lt">2027年国考第三十五季行测模考大赛（副省级）</div><div class="lm">135 题 · 120 分钟 · 未完成</div></div><span class="lb">开始做题</span></div>
+          <div class="li dim"><div><div class="lt">2027年国考第三十五季行测模考大赛（地市级）</div><div class="lm">130 题 · 120 分钟 · 未完成</div></div><span class="lb">开始做题</span></div>
+        </div>
+
+        <!-- 跳转面板 -->
+        <div class="panel" id="panel">
+          <div class="phd"><span>粉笔试卷跳转</span><span class="pmin">收起</span></div>
+          <div class="pbd">
+            <div class="prow"><span class="plb">年份</span><div class="sel" id="selY"><span id="vY">2027 年</span><i></i></div></div>
+            <div class="prow"><span class="plb">第几季</span><div class="sel" id="selS"><span id="vS">第三十六季</span><i></i></div></div>
+            <div class="prow"><span class="plb">类别</span><div class="sel" id="selC"><span id="vC">行政执法类</span><i></i></div></div>
+            <div class="pgo" id="pgo">跳转试卷</div>
+            <div class="pst" id="pst">正在加载试卷数据...</div>
+          </div>
+        </div>
+
+        <!-- 三个自绘下拉 -->
+        <div class="dd" id="ddY">
+          <div class="dopt cur" id="y0">2027 年</div>
+          <div class="dopt" id="y1">2026 年</div>
+          <div class="dopt" id="y2">2025 年</div>
+          <div class="dopt" id="y3">2024 年</div>
+        </div>
+        <div class="dd" id="ddS">
+          <div class="dopt cur" id="s0">第三十六季（完成 2 次）</div>
+          <div class="dopt" id="s1">第三十五季（未完成）</div>
+          <div class="dopt" id="s2">第三十四季（完成 1 次）</div>
+          <div class="dopt" id="s3">第三十三季（未完成）</div>
+          <div class="dopt" id="s4">终极模考（未完成）</div>
+        </div>
+        <div class="dd" id="ddC">
+          <div class="dopt" id="c0">地市级</div>
+          <div class="dopt cur" id="c1">行政执法类</div>
+          <div class="dopt" id="c2">副省级</div>
+        </div>
+
+        <!-- 跳转后的试卷页 -->
+        <div class="paper" id="paper">
+          <div class="pbar">
+            <span class="pt">2027 年国考第三十五季行测模考大赛（行政执法类）</span>
+            <span class="ptag">已进入试卷</span>
+          </div>
+          <div class="pbody">
+            <div class="psub">第一部分 · 常识判断</div>
+            <div class="pq">1. 党的二十大报告指出，中国式现代化是人口规模巨大的现代化，是全体人民共同富裕的现代化，是物质文明和精神文明相协调的现代化，是人与自然和谐共生的现代化，是走和平发展道路的现代化。下列关于中国式现代化的表述，正确的是：</div>
+            <div class="pop"><b>A</b><span>中国式现代化只适用于社会主义初级阶段</span></div>
+            <div class="pop"><b>B</b><span>中国式现代化既有各国现代化的共同特征，更有基于自身国情的中国特色</span></div>
+            <div class="pop"><b>C</b><span>中国式现代化不需要借鉴人类文明的一切优秀成果</span></div>
+            <div class="pop"><b>D</b><span>中国式现代化与西方现代化的发展路径完全相同</span></div>
+          </div>
+        </div>
+
+        <div class="chip ok" id="chip"><span class="tx"><span class="d"></span>三个下拉选完 · 一键落到那张卷子上</span></div>
+
+        <div class="cursor" id="cursor">
+          <svg viewBox="0 0 24 24"><path d="M5.2 2.6 20 11.1l-6.6 1.7-2.3 6.9z" fill="#32343A" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="ring" id="r0"></div>
+        <div class="ring" id="r1"></div>
+        <div class="ring" id="r2"></div>
+        <div class="ring" id="r3"></div>
+        <div class="ring" id="r4"></div>
+
+        <div class="flash" id="flash"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cap">
+    <span class="a"><em></em>年份 / 第几季 / 类别，三个下拉选完点一下</span>
+    <span class="b"><em></em>直接落到那张卷子，不用在长列表里翻</span>
+  </div>
+</div>
+
+<script>
+(function(){
+  const sceneEl = document.getElementById('scene');
+  const panel = document.getElementById('panel');
+  const selY = document.getElementById('selY');
+  const selS = document.getElementById('selS');
+  const selC = document.getElementById('selC');
+  const pgo = document.getElementById('pgo');
+  const pst = document.getElementById('pst');
+  const ddY = document.getElementById('ddY');
+  const ddS = document.getElementById('ddS');
+  const ddC = document.getElementById('ddC');
+  const paper = document.getElementById('paper');
+  const chip = document.getElementById('chip');
+  const cursor = document.getElementById('cursor');
+  const rings = ['r0','r1','r2','r3','r4'].map(id => document.getElementById(id));
+  const flash = document.getElementById('flash');
+  const vY = document.getElementById('vY'), vS = document.getElementById('vS'), vC = document.getElementById('vC');
+
+  const yOpts = ['y0','y1','y2','y3'].map(id => document.getElementById(id));
+  const sOpts = ['s0','s1','s2','s3','s4'].map(id => document.getElementById(id));
+  const cOpts = ['c0','c1','c2'].map(id => document.getElementById(id));
+
+  /* ---------- 时间轴 ---------- */
+  const CYCLE = 9600;
+
+  const T_PANEL   = 340;                 // 面板淡入
+  const T_READY   = 760;                 // 状态变「就绪」
+  const T_CUR_Y   = 900,  T_CUR_Y2 = 1360;
+  const T_DDY     = 1420, T_DDY_OUT = 2160;
+  const T_CUR_Y3  = 1620;                // 移到「2026 年」
+  const T_PICK_Y  = 2020;
+  const T_CUR_S   = 2360, T_CUR_S2 = 2760;
+  const T_DDS     = 2820, T_DDS_OUT = 3620;
+  const T_CUR_S3  = 3000;                // 移到「第三十五季」
+  const T_PICK_S  = 3460;
+  const T_CUR_C   = 3820, T_CUR_C2 = 4200;
+  const T_DDC     = 4260, T_DDC_OUT = 4960;
+  const T_CUR_C3  = 4420;                // 移到「副省级」
+  const T_PICK_C  = 4800;
+  const T_CUR_G   = 5260, T_CUR_G2 = 5620;
+  const T_GO      = 5700;
+  const T_JUMP    = 5920;
+  const T_GREEN   = 7500;
+  const OUT_A     = 9200;
+
+  function em(){ return parseFloat(getComputedStyle(sceneEl).fontSize); }
+  function clamp01(x){ return x < 0 ? 0 : x > 1 ? 1 : x; }
+  function ease(x){ return x < .5 ? 2*x*x : 1 - Math.pow(-2*x + 2, 2)/2; }
+  function seg(t,a,b){ return clamp01((t - a) / (b - a)); }
+  function lerp(a,b,k){ return [a[0] + (b[0]-a[0])*k, a[1] + (b[1]-a[1])*k]; }
+
+  /* ---------- 坐标 ---------- */
+  let P = {}, ddPos = {};
+
+  function centerOf(el){
+    const s = sceneEl.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    return [ (r.left + r.width/2 - s.left)/em(), (r.top + r.height/2 - s.top)/em() ];
+  }
+  function placeDD(dd, sel){
+    const s = sceneEl.getBoundingClientRect();
+    const r = sel.getBoundingClientRect();
+    dd.style.left = ((r.left - s.left)/em()) + 'em';
+    dd.style.top  = ((r.bottom - s.top)/em() + .12) + 'em';
+    dd.style.width = ((r.width)/em()) + 'em';
+  }
+  function measure(){
+    placeDD(ddY, selY); placeDD(ddS, selS); placeDD(ddC, selC);
+    P.y  = centerOf(selY);
+    P.s  = centerOf(selS);
+    P.c  = centerOf(selC);
+    P.g  = centerOf(pgo);
+    P.y0 = centerOf(yOpts[0]);
+    P.s1 = centerOf(sOpts[1]);
+    P.c1 = centerOf(cOpts[1]);
+  }
+  function putCursor(c){ cursor.style.transform = `translate(${c[0] - .15}em, ${c[1] - .1}em)`; }
+  function ringAt(el, c, k){
+    el.style.opacity = (1 - k) * .9;
+    el.style.transform = `translate(${c[0] - .34}em, ${c[1] - .34}em) scale(${1 + k * 2.4})`;
+  }
+
+  function render(t){
+    /* 面板 */
+    const pk = ease(seg(t, T_PANEL, T_PANEL + 380));
+    panel.style.opacity = pk * (1 - ease(seg(t, OUT_A - 150, OUT_A)));
+    panel.style.transform = `translateY(${(1 - pk) * -.3}em)`;
+    pst.textContent = t < T_READY ? '正在加载试卷数据...'
+                    : (t < T_JUMP ? '就绪：共 186 份试卷'
+                    : '正在跳转：2027年国考第三十五季行测模考大赛（行政执法类）');
+
+    /* 三个下拉 */
+    const ddIn = (a, b) => ease(seg(t, a, a + 200)) * (1 - ease(seg(t, b, b + 180)));
+    const ky = ddIn(T_DDY, T_DDY_OUT), ks = ddIn(T_DDS, T_DDS_OUT), kc = ddIn(T_DDC, T_DDC_OUT);
+    [[ddY, ky], [ddS, ks], [ddC, kc]].forEach(([el, k]) => {
+      el.style.opacity = k;
+      el.style.transform = `translateY(${(1 - k) * -.25}em)`;
+      el.style.visibility = k > 0 ? 'visible' : 'hidden';
+    });
+
+    /* 下拉里的高亮（光标悬停项） */
+    const hov = (arr, i, on) => arr.forEach((el, j) => el.classList.toggle('on', on && j === i));
+    hov(yOpts, 0, t >= T_CUR_Y3 && t < T_PICK_Y);
+    hov(sOpts, 1, t >= T_CUR_S3 && t < T_PICK_S);
+    hov(cOpts, 1, t >= T_CUR_C3 && t < T_PICK_C);
+
+    /* 选中值跟随点击 + cur 标记移动 */
+    vY.textContent = '2027 年';
+    vS.textContent = t >= T_PICK_S + 140 ? '第三十五季' : '第三十六季';
+    vC.textContent = '行政执法类';
+    yOpts.forEach((el, j) => el.classList.toggle('cur', j === 0));
+    sOpts.forEach((el, j) => el.classList.toggle('cur', j === (t >= T_PICK_S + 140 ? 1 : 0)));
+    cOpts.forEach((el, j) => el.classList.toggle('cur', j === 1));
+
+    selY.classList.toggle('on', t >= T_CUR_Y && t < T_DDY_OUT);
+    selS.classList.toggle('on', t >= T_CUR_S && t < T_DDS_OUT);
+    selC.classList.toggle('on', t >= T_CUR_C && t < T_DDC_OUT);
+    pgo.classList.toggle('on', t >= T_CUR_G2 - 60 && t < T_JUMP);
+
+    /* 试卷页滑入 */
+    const jk = ease(seg(t, T_JUMP + 60, T_JUMP + 520));
+    paper.style.transform = `translateX(${(1 - jk) * 101}%)`;
+
+    /* 绿胶囊 */
+    chip.style.opacity = ease(seg(t, T_GREEN, T_GREEN + 300)) * (1 - ease(seg(t, OUT_A - 150, OUT_A)));
+
+    /* 光标 */
+    let c = null;
+    if (t < T_CUR_Y)            c = lerp([12.6, 11.2], P.y, ease(seg(t, T_CUR_Y, T_CUR_Y2)));
+    else if (t < T_DDY_OUT)     c = lerp(P.y, P.y0, ease(seg(t, T_CUR_Y3, T_CUR_Y3 + 300)));
+    else if (t < T_CUR_S)       c = lerp(P.y0, P.s, ease(seg(t, T_CUR_S - 180, T_CUR_S2)));
+    else if (t < T_DDS_OUT)     c = lerp(P.s, P.s1, ease(seg(t, T_CUR_S3, T_CUR_S3 + 320)));
+    else if (t < T_CUR_C)       c = lerp(P.s1, P.c, ease(seg(t, T_CUR_C - 180, T_CUR_C2)));
+    else if (t < T_DDC_OUT)     c = lerp(P.c, P.c1, ease(seg(t, T_CUR_C3, T_CUR_C3 + 320)));
+    else if (t < T_CUR_G)       c = lerp(P.c1, P.g, ease(seg(t, T_CUR_G - 180, T_CUR_G2)));
+    else                        c = P.g;
+    putCursor(c);
+    cursor.style.opacity = ease(seg(t, 620, 900)) * (1 - ease(seg(t, T_JUMP, T_JUMP + 300)));
+
+    /* 涟漪 */
+    rings.forEach(el => { el.style.opacity = 0; });
+    const rr = [
+      [T_PICK_Y - 60, T_PICK_Y + 280, P.y0, 0],
+      [T_PICK_S - 60, T_PICK_S + 280, P.s1, 1],
+      [T_PICK_C - 60, T_PICK_C + 280, P.c1, 2],
+      [T_GO - 60, T_GO + 300, P.g, 3],
+    ];
+    rr.forEach(([a,b,c0,i]) => {
+      const k = seg(t, a, b);
+      if (k > 0 && k < 1) ringAt(rings[i], c0, k);
+    });
+
+    /* 转场 */
+    let a = 0;
+    if (t < 280) a = 1 - seg(t, 30, 280);
+    else if (t >= OUT_A) a = seg(t, OUT_A, OUT_A + 280);
+    flash.style.opacity = a;
+  }
+
+  let start = performance.now(), paused = false;
+  function loop(now){
+    if (!paused) render((now - start) % CYCLE);
+    requestAnimationFrame(loop);
+  }
+  function boot(){
+    measure();
+    render(0);
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce){ render(3300); paused = true; return; }
+    requestAnimationFrame(loop);
+  }
+  window.__setT = function(t){ paused = true; render(t); };
+  window.__play = function(){ paused = false; start = performance.now(); };
+  window.addEventListener('resize', () => { measure(); render(0); });
+
+  if (document.readyState === 'complete') boot();
+  else window.addEventListener('load', boot);
+})();
+</script>
+</body>
+</html>

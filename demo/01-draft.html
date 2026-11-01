@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>演示 01 · 自动全开草稿</title>
+<style>
+  :root{
+    --blue:#3C7CFC;
+    --blue-deep:#2E6AE8;
+    --blue-soft:#EFF2FE;
+    --ink:#32343A;
+    --ink-2:#636E92;
+    --ink-3:#AFB6BC;
+    --line:#E9EDF4;
+    --grey:#F5F7FA;
+    --ok:#2BC8A0;
+    --bad:#FF5A5A;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    padding:34px 20px 54px;
+    background:#EEF2F7;
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:960px;margin:0 auto}
+
+  /* 被作品集页面以 iframe 嵌入时：去掉标题与留白，画面铺满整块 */
+  body.embed{padding:0;background:transparent}
+  body.embed .head{display:none}
+  body.embed .wrap{max-width:none;margin:0}
+  body.embed .scene{
+    position:fixed;inset:0;aspect-ratio:auto;border-radius:0;border:0;box-shadow:none;
+  }
+
+  .head{margin:0 0 16px}
+  .head h1{font-size:19px;font-weight:600;margin:0 0 7px;letter-spacing:-.01em}
+  .head p{font-size:13px;line-height:1.7;color:var(--ink-2);margin:0}
+  .head b{color:var(--blue);font-weight:600}
+
+  /* ---------- 场景 ---------- */
+  .scene{
+    position:relative;
+    aspect-ratio:16/10;
+    border-radius:16px;
+    overflow:hidden;
+    background:#fff;
+    border:1px solid rgba(50,52,58,.08);
+    box-shadow:0 1px 2px rgba(50,52,58,.05),0 18px 40px -24px rgba(50,52,58,.5);
+  }
+  .stage{position:absolute;inset:0;container-type:size}
+  .stage-in{position:absolute;inset:0;font-size:3.15cqw}
+
+  /* 顶栏 */
+  .appbar{
+    position:absolute;top:0;left:0;right:0;height:2.4em;
+    display:flex;align-items:center;gap:.7em;
+    padding:0 1em;
+    background:#fff;
+    border-bottom:.06em solid var(--line);
+    font-size:.72em;color:var(--ink-2);
+    z-index:6;
+  }
+  .appbar .back{color:var(--blue);font-size:1em}
+  .appbar .ttl{color:var(--ink);font-weight:500}
+  .appbar .sp{flex:1}
+  .appbar .clock{
+    font-variant-numeric:tabular-nums;
+    color:var(--ink-2);
+    background:var(--grey);
+    border-radius:.35em;
+    padding:.25em .55em;
+  }
+  .appbar .submit{
+    color:#fff;background:var(--blue);
+    border-radius:.4em;
+    padding:.28em .8em;
+    font-weight:500;
+  }
+
+  /* 题干区 */
+  .paper{
+    position:absolute;left:0;right:0;top:2.4em;bottom:0;
+    padding:.55em 1.9em 0;
+    will-change:transform;
+  }
+  .q{margin:0 0 .55em}
+  .stem{
+    font-size:.76em;line-height:1.75;color:var(--ink);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .stem .no{color:var(--blue);font-weight:600;margin-right:.35em}
+  .blank{
+    display:inline-block;width:2.2em;border-bottom:.07em solid var(--ink-3);
+    vertical-align:-.15em;margin:0 .1em;
+  }
+  .opts{
+    font-size:.68em;line-height:1.75;color:var(--ink-2);
+    display:flex;gap:1.05em;margin-top:.1em;
+  }
+  .opts i{font-style:normal;color:var(--ink-3);margin-right:.2em}
+
+  /* 草稿条 */
+  .dbox{
+    margin-top:.28em;
+    border:.07em dashed #D5DEEF;
+    border-radius:.42em;
+    background:#FCFDFF;
+    overflow:hidden;
+  }
+  .dbar{
+    height:1.32em;
+    display:flex;align-items:center;
+    padding:0 .5em;
+    font-size:.65em;color:var(--ink-3);
+  }
+  .dbar .pen{color:var(--ink-2);margin-right:.4em}
+  .dbar .sp{flex:1}
+  .plus{
+    display:grid;place-items:center;
+    width:1.5em;height:1.5em;
+    border-radius:.3em;
+    background:var(--blue-soft);
+    color:var(--blue);
+    font-size:1em;font-weight:600;
+    line-height:1;
+  }
+  .da{
+    height:0;overflow:hidden;position:relative;
+    background:
+      repeating-linear-gradient(to bottom,transparent 0,transparent 1.35em,#F1F4FA 1.35em,#F1F4FA 1.42em);
+  }
+  .da svg{position:absolute;inset:0;width:100%;height:100%}
+  .da path{
+    fill:none;stroke:var(--blue-deep);stroke-width:2.6;
+    stroke-linecap:round;stroke-linejoin:round;
+  }
+  .tools{
+    position:absolute;right:.45em;bottom:.4em;
+    display:flex;gap:.3em;align-items:center;
+    font-size:.55em;color:var(--ink-2);
+  }
+  .tools span{
+    background:#fff;border:.07em solid var(--line);
+    border-radius:.35em;padding:.25em .5em;
+  }
+  .tools .sw{width:1.5em;height:1.5em;border-radius:50%;background:var(--blue);border:none;padding:0}
+
+  /* 浮层 */
+  .tag{
+    position:absolute;left:.95em;bottom:.85em;z-index:7;
+    font-size:.66em;font-weight:500;
+    padding:.42em .85em;border-radius:2em;
+    background:rgba(255,255,255,.94);
+    color:var(--ink-2);
+    border:.07em solid var(--line);
+    box-shadow:0 .2em .6em -0.2em rgba(50,52,58,.25);
+    display:flex;align-items:center;gap:.4em;
+  }
+  .tag .k{
+    width:.5em;height:.5em;border-radius:50%;background:var(--ink-3);
+  }
+  .tag.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .tag.on .k{background:#fff}
+
+  .hud{
+    position:absolute;right:.95em;bottom:.85em;z-index:7;
+    font-size:.66em;
+    padding:.42em .8em;border-radius:.5em;
+    background:rgba(255,255,255,.94);
+    border:.07em solid var(--line);
+    box-shadow:0 .2em .6em -0.2em rgba(50,52,58,.25);
+    display:flex;align-items:center;gap:.45em;
+    color:var(--ink-2);
+    font-variant-numeric:tabular-nums;
+  }
+  .hud b{font-size:1.15em;font-weight:700;transition:none}
+  .hud.sad b{color:var(--bad)}
+  .hud.good b{color:var(--ok)}
+
+  /* 光标 / 笔 */
+  .touch{
+    position:absolute;left:0;top:0;width:.85em;height:.85em;
+    border-radius:50%;background:rgba(60,124,252,.85);
+    box-shadow:0 0 0 .3em rgba(60,124,252,.16);
+    z-index:9;opacity:0;pointer-events:none;
+  }
+  .ring{
+    position:absolute;left:0;top:0;width:.85em;height:.85em;
+    border-radius:50%;border:.1em solid rgba(60,124,252,.6);
+    z-index:9;opacity:0;pointer-events:none;
+  }
+  .nib{
+    position:absolute;left:0;top:0;width:.6em;height:.6em;
+    border-radius:50%;background:var(--blue-deep);
+    box-shadow:0 0 0 .26em rgba(46,106,232,.18);
+    z-index:9;opacity:0;pointer-events:none;
+  }
+
+  .flash{
+    position:absolute;inset:0;background:#fff;z-index:20;
+    opacity:0;pointer-events:none;
+  }
+
+  .cap{
+    margin:12px 2px 0;font-size:12.5px;color:var(--ink-2);
+    display:flex;gap:14px;flex-wrap:wrap;
+  }
+  .cap span{display:flex;align-items:center;gap:6px}
+  .cap em{width:7px;height:7px;border-radius:50%;display:block;font-style:normal}
+  .cap .a em{background:var(--bad)}
+  .cap .b em{background:var(--ok)}
+</style>
+</head>
+<body>
+<script>if(location.search.indexOf('embed')>-1)document.body.classList.add('embed');</script>
+
+<div class="wrap">
+  <div class="head">
+    <h1>演示 01 · 粉笔自动全开草稿</h1>
+    <p>一页里每道题的草稿区，<b>进页面就已经全部展开</b>。原版要写哪一题就点一次，装完直接写。</p>
+  </div>
+
+  <div class="scene">
+    <div class="stage">
+      <div class="stage-in" id="scene">
+
+        <div class="appbar">
+          <span class="back">‹ 返回</span>
+          <span class="ttl">言语理解与表达</span>
+          <span class="sp"></span>
+          <span class="clock" id="clock">02:13</span>
+          <span class="submit">交卷</span>
+        </div>
+
+        <div class="paper" id="paper">
+          <!-- 12 -->
+          <div class="q" data-i="0">
+            <div class="stem"><span class="no">12.</span>科学研究需要<span class="blank"></span>的态度，任何结论都经得起反复检验。</div>
+            <div class="opts"><span><i>A</i>严谨</span><span><i>B</i>谨慎</span><span><i>C</i>苛刻</span><span><i>D</i>慎重</span></div>
+            <div class="dbox">
+              <div class="dbar"><span class="pen">✎</span>草稿<span class="sp"></span><span class="plus">＋</span></div>
+              <div class="da"><svg viewBox="0 0 640 100" preserveAspectRatio="none">
+                <path class="p1" d="M46,62 C76,40 106,76 138,54 S196,44 226,64 S276,46 306,58"/>
+                <path class="p2" d="M322,54 L338,74 L370,26"/>
+              </svg>
+                <div class="tools"><span>笔</span><span>橡皮</span><span class="sw"></span><span>细</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 13 -->
+          <div class="q" data-i="1">
+            <div class="stem"><span class="no">13.</span>面对复杂局面，他始终保持<span class="blank"></span>，从容作出判断。</div>
+            <div class="opts"><span><i>A</i>镇定</span><span><i>B</i>冷静</span><span><i>C</i>克制</span><span><i>D</i>沉默</span></div>
+            <div class="dbox">
+              <div class="dbar"><span class="pen">✎</span>草稿<span class="sp"></span><span class="plus">＋</span></div>
+              <div class="da"><svg viewBox="0 0 640 100" preserveAspectRatio="none">
+                <path class="p1" d="M46,60 C80,44 110,72 146,56 S206,48 240,62"/>
+              </svg>
+                <div class="tools"><span>笔</span><span>橡皮</span><span class="sw"></span><span>细</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 14 -->
+          <div class="q" data-i="2">
+            <div class="stem"><span class="no">14.</span>这项政策的效果还需时间检验，不宜<span class="blank"></span>下结论。</div>
+            <div class="opts"><span><i>A</i>贸然</span><span><i>B</i>轻易</span><span><i>C</i>草率</span><span><i>D</i>随便</span></div>
+            <div class="dbox">
+              <div class="dbar"><span class="pen">✎</span>草稿<span class="sp"></span><span class="plus">＋</span></div>
+              <div class="da"><svg viewBox="0 0 640 100" preserveAspectRatio="none">
+                <path class="p1" d="M46,62 C84,46 118,70 156,58"/>
+              </svg>
+                <div class="tools"><span>笔</span><span>橡皮</span><span class="sw"></span><span>细</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="touch" id="touch"></div>
+          <div class="ring" id="ring"></div>
+          <div class="nib" id="nib"></div>
+        </div>
+
+        <div class="tag" id="tag"><span class="k"></span><span id="tagText">原版粉笔</span></div>
+        <div class="hud sad" id="hud"><b id="hudN">0</b> 次点击<span style="opacity:.45">·</span><b id="hudS">0</b> 次滚动</div>
+
+        <div class="flash" id="flash"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cap">
+    <span class="a"><em></em>原版：写 3 题 = 3 次点击 + 2 次滚动</span>
+    <span class="b"><em></em>装后：进页面就能写，0 次点击</span>
+  </div>
+</div>
+
+<script>
+(function(){
+  const sceneEl = document.getElementById('scene');
+  const paper   = document.getElementById('paper');
+  const qs      = [...document.querySelectorAll('.q')];
+  const touch   = document.getElementById('touch');
+  const ring    = document.getElementById('ring');
+  const nib     = document.getElementById('nib');
+  const flash   = document.getElementById('flash');
+  const tag     = document.getElementById('tag');
+  const tagText = document.getElementById('tagText');
+  const hud     = document.getElementById('hud');
+  const hudN    = document.getElementById('hudN');
+  const hudS    = document.getElementById('hudS');
+  const clock   = document.getElementById('clock');
+
+  const CYCLE = 9400;
+  const H_OPEN = 4.15;          // 展开高度(em)
+  const TAP = [620, 1860, 3020];
+  const OPEN_DUR = 400;
+
+  function clamp01(x){ return x < 0 ? 0 : x > 1 ? 1 : x; }
+  function ease(x){ return x < .5 ? 2*x*x : 1 - Math.pow(-2*x + 2, 2)/2; }
+  function seg(t,a,b){ return clamp01((t - a) / (b - a)); }
+  function lerp(a,b,k){ return a + (b - a) * k; }
+
+  // 每帧实时读布局（草稿展开会推挤下面的题，不能缓存）
+  // 注意：.q 不是定位元素，plus/da 的 offsetParent 就是 paper，offset* 已是 paper 内坐标
+  function plusPos(i, em){
+    const plus = qs[i].querySelector('.plus');
+    return [
+      (plus.offsetLeft + plus.offsetWidth / 2) / em,
+      (plus.offsetTop + plus.offsetHeight / 2) / em
+    ];
+  }
+  function daPos(i, em){
+    const da = qs[i].querySelector('.da');
+    return [
+      da.offsetLeft / em,
+      da.offsetTop / em,
+      da.offsetWidth / em,
+      da.offsetHeight / em
+    ];
+  }
+
+  const paths = qs.map(q => [...q.querySelectorAll('.da path')]);
+  paths.forEach(list => list.forEach(p => {
+    const L = p.getTotalLength();
+    p.style.strokeDasharray = L;
+    p.style.strokeDashoffset = L;
+    p.__L = L;
+  }));
+
+  function render(t){
+    const em = parseFloat(getComputedStyle(sceneEl).fontSize);
+    const inBefore = t < 4100;
+    const inAfter  = t >= 4100 && t < 8700;
+
+    // ---- 草稿展开进度 ----
+    let opens, scrollY, clicks, scrolls;
+    if (inBefore){
+      opens  = TAP.map(s => ease(seg(t, s, s + OPEN_DUR)));
+      clicks = TAP.filter(s => t >= s).length;
+      const s1 = ease(seg(t, 1180, 1500));
+      const s2 = ease(seg(t, 2420, 2740));
+      scrollY = -(3.15 * s1 + 3.15 * s2);
+      scrolls = (t >= 1500 ? 1 : 0) + (t >= 2740 ? 1 : 0);
+    } else if (inAfter){
+      opens  = [0,1,2].map(i => ease(seg(t, 4250 + i*90, 4250 + i*90 + 280)));
+      scrollY = 0; clicks = 0; scrolls = 0;
+    } else {
+      opens = [0,0,0]; scrollY = 0; clicks = 0; scrolls = 0;
+    }
+
+    qs.forEach((q,i) => {
+      q.querySelector('.da').style.height = (opens[i] * H_OPEN) + 'em';
+      q.querySelector('.plus').textContent = opens[i] > .5 ? '－' : '＋';
+    });
+    paper.style.transform = `translateY(${scrollY}em)`;
+
+    // ---- HUD ----
+    hud.classList.toggle('sad', inBefore);
+    hud.classList.toggle('good', !inBefore);
+    hudN.textContent = clicks;
+    hudS.textContent = scrolls;
+
+    // ---- 标签 ----
+    tag.classList.toggle('on', !inBefore);
+    tagText.textContent = inBefore ? '原版粉笔' : '＋ 自动全开草稿';
+
+    // ---- 计时器 ----
+    const sec = inBefore ? 133 + Math.floor((t - 300) / 900) : 133;
+    clock.textContent = '02:' + String(sec % 60).padStart(2,'0');
+
+    // ---- 光标 / 触点 ----
+    let cursorOn = false, cx = 0, cy = 0;
+    const P = [plusPos(0, em), plusPos(1, em), plusPos(2, em)];
+    if (inBefore && t > 200 && t < 3900){
+      cursorOn = true;
+      const p0 = P[0], p1 = P[1], p2 = P[2];
+      const startX = p0[0] + 7, startY = p0[1] - 3.2;
+      if (t < 620){
+        const k = ease(seg(t, 240, 620));
+        cx = lerp(startX, p0[0], k); cy = lerp(startY, p0[1], k);
+      } else if (t < 1560){
+        cx = p0[0]; cy = p0[1];
+      } else if (t < 1820){
+        const k = ease(seg(t, 1560, 1820));
+        cx = lerp(p0[0], p1[0], k); cy = lerp(p0[1], p1[1], k);
+      } else if (t < 2760){
+        cx = p1[0]; cy = p1[1];
+      } else if (t < 3000){
+        const k = ease(seg(t, 2760, 3000));
+        cx = lerp(p1[0], p2[0], k); cy = lerp(p1[1], p2[1], k);
+      } else {
+        cx = p2[0]; cy = p2[1];
+      }
+      touch.style.opacity = .95;
+      touch.style.transform = `translate(${cx - .425}em, ${cy - .425}em)`;
+    } else {
+      touch.style.opacity = 0;
+    }
+
+    // ---- 点击涟漪 ----
+    let ringA = 0, rx = 0, ry = 0;
+    if (inBefore){
+      for (let i = 0; i < 3; i++){
+        const k = seg(t, TAP[i], TAP[i] + 520);
+        if (k > 0 && k < 1){
+          ringA = 1 - k;
+          rx = P[i][0]; ry = P[i][1];
+          const sc = 1 + k * 2.6;
+          ring.style.transform = `translate(${rx - .425}em, ${ry - .425}em) scale(${sc})`;
+        }
+      }
+    }
+    ring.style.opacity = ringA * .9;
+
+    // ---- 笔迹 ----
+    if (inAfter){
+      const d1 = seg(t, 4900, 6120);
+      const d2 = seg(t, 6180, 6800);
+      const pA = paths[0][0], pB = paths[0][1];
+      pA.style.strokeDashoffset = pA.__L * (1 - d1);
+      pB.style.strokeDashoffset = pB.__L * (1 - d2);
+
+      const da = daPos(0, em);
+      if (da[3] > 0){
+        const toEm = (pt) => [
+          da[0] + (pt.x / 640) * da[2],
+          da[1] + (pt.y / 100) * da[3]
+        ];
+        let penOn = false, px = 0, py = 0;
+        if (t > 4560 && t < 4900){
+          const k = ease(seg(t, 4560, 4900));
+          const s = toEm(pA.getPointAtLength(0));
+          const e = [da[0] + da[2] * .02, da[1] + da[3] * .95];
+          penOn = true;
+          px = lerp(e[0], s[0], k); py = lerp(e[1], s[1], k);
+        } else if (t >= 4900 && t <= 6120){
+          penOn = true;
+          [px, py] = toEm(pA.getPointAtLength(pA.__L * d1));
+        } else if (t > 6120 && t <= 6800){
+          penOn = true;
+          [px, py] = toEm(pB.getPointAtLength(pB.__L * d2));
+        } else if (t > 6800 && t < 7250){
+          const k = seg(t, 6800, 7250);
+          penOn = true;
+          [px, py] = toEm(pB.getPointAtLength(pB.__L));
+          nib.style.opacity = (1 - k) * .95;
+        }
+        nib.style.transform = `translate(${px - .3}em, ${py - .3}em)`;
+        if (t <= 6800) nib.style.opacity = penOn ? .95 : 0;
+        if (t >= 7250) nib.style.opacity = 0;
+      }
+    } else {
+      paths.forEach(list => list.forEach(p => p.style.strokeDashoffset = p.__L));
+      nib.style.opacity = 0;
+    }
+
+    // ---- 转场 ----
+    let a = 0;
+    if (t >= 3780 && t < 4100) a = seg(t, 3780, 3960);
+    else if (t >= 4100 && t < 4300) a = 1 - seg(t, 4100, 4300);
+    if (t >= 8250 && t < 8700) a = Math.max(a, seg(t, 8250, 8620));
+    else if (t >= 8700) a = 1 - seg(t, 8820, 9350);
+    flash.style.opacity = a;
+  }
+
+  let start = performance.now(), paused = false;
+  function loop(now){
+    if (!paused){
+      const t = (now - start) % CYCLE;
+      render(t);
+    }
+    requestAnimationFrame(loop);
+  }
+
+  function boot(){
+    render(0);
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce){ render(3400); paused = true; return; }
+    requestAnimationFrame(loop);
+  }
+
+  window.__setT = function(t){ paused = true; render(t); };
+  window.__play = function(){ paused = false; start = performance.now(); };
+  window.addEventListener('resize', () => render(0));
+
+  if (document.readyState === 'complete') boot();
+  else window.addEventListener('load', boot);
+})();
+</script>
+</body>
+</html>

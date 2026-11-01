@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>演示 04 · 粉笔题库·悬浮查词（悬停即释义 + 三个出口）</title>
+<style>
+  :root{
+    --blue:#3C7CFC;
+    --ink:#32343A;
+    --ink-2:#636E92;
+    --ink-3:#AFB6BC;
+    --line:#E9EDF4;
+    --grey:#F5F7FA;
+    --ok:#2BC8A0;
+    --bad:#FF5A5A;
+    --tip-blue:#165dff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    padding:34px 20px 54px;
+    background:#EEF2F7;
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:960px;margin:0 auto}
+
+  /* 被作品集页面以 iframe 嵌入时：去掉标题与留白，画面铺满整块 */
+  body.embed{padding:0;background:transparent}
+  body.embed .head{display:none}
+  body.embed .wrap{max-width:none;margin:0}
+  body.embed .scene{
+    position:fixed;inset:0;aspect-ratio:auto;border-radius:0;border:0;box-shadow:none;
+  }
+
+  .head{margin:0 0 16px}
+  .head h1{font-size:19px;font-weight:600;margin:0 0 7px;letter-spacing:-.01em}
+  .head p{font-size:13px;line-height:1.7;color:var(--ink-2);margin:0}
+  .head b{color:var(--blue);font-weight:600}
+
+  .scene{
+    position:relative;aspect-ratio:16/10;border-radius:16px;overflow:hidden;
+    background:#fff;border:1px solid rgba(50,52,58,.08);
+    box-shadow:0 1px 2px rgba(50,52,58,.05),0 18px 40px -24px rgba(50,52,58,.5);
+  }
+  .stage{position:absolute;inset:0;container-type:size}
+  .stage-in{position:absolute;inset:0;font-size:3.15cqw;background:#F7F9FC;overflow:hidden}
+
+  /* ---------- 顶栏 ---------- */
+  .appbar{
+    position:absolute;top:0;left:0;right:0;height:2.1em;
+    display:flex;align-items:center;gap:.7em;padding:0 1em;
+    background:#fff;border-bottom:.06em solid var(--line);z-index:8;
+  }
+  .appbar .back{font-size:.48em;color:var(--blue)}
+  .appbar .ttl{font-size:.48em;color:var(--ink);font-weight:500}
+  .appbar .sp{flex:1}
+  .appbar .meta{font-size:.44em;color:var(--ink-3)}
+  .appbar .meta b{color:var(--ink-2);font-weight:600}
+
+  /* ---------- 题目 ---------- */
+  .qwrap{position:absolute;left:0;right:0;top:2.1em;padding:1.5em 2.2em 0 5.6em}
+  .qnum{font-size:.46em;color:var(--ink-3);margin-bottom:.4em;letter-spacing:.02em}
+  .stem{font-size:.56em;line-height:1.95;color:var(--ink);max-width:36em;text-align:justify}
+  .stem .blank{
+    display:inline-block;width:2.6em;border-bottom:.07em solid #9AA6BE;
+    margin:0 .12em;vertical-align:baseline;height:.95em;
+  }
+  .ask{font-size:.46em;color:var(--ink-2);margin:.55em 0 .9em}
+  .opts{max-width:30em}
+  .opt{display:flex;align-items:flex-start;gap:.5em;padding:.42em 0}
+  .opt .ol{
+    flex:none;width:1.05em;height:1.05em;border-radius:50%;border:.06em solid #D7DDE9;
+    font-size:.38em;color:var(--ink-2);display:flex;align-items:center;justify-content:center;margin-top:.28em;
+  }
+  .opt .ot{font-size:.52em;line-height:1.5;color:var(--ink)}
+  .w{position:relative;border-radius:.14em;padding:0 .06em}
+  .w.mark{background:rgba(22,93,255,.1);box-shadow:inset 0 -.09em 0 rgba(22,93,255,.55)}
+
+  /* ---------- 整页"新标签"面板 ---------- */
+  .page{
+    position:absolute;inset:0;z-index:10;background:#EEF1F6;
+    transform:translateY(101%);overflow:hidden;
+  }
+  .tabbar{height:1.9em;background:#DEE3EC;display:flex;align-items:flex-end;gap:.12em;padding:0 .7em}
+  .tab{
+    max-width:9.4em;height:1.5em;border-radius:.24em .24em 0 0;background:#EEF1F6;
+    display:flex;align-items:center;gap:.34em;padding:0 .7em;font-size:.4em;color:#5A6478;
+    white-space:nowrap;overflow:hidden;
+  }
+  .tab.dim{background:#D2D8E4;color:#6B7488}
+  .tab .x{color:#9AA3B2}
+  .tab.now{background:#fff;color:#1A57C8}
+
+  .sbody{position:absolute;top:1.9em;left:0;right:0;bottom:0;background:#fff;padding:1.1em 2.4em 0}
+
+  /* ---------- 百度汉语页 ---------- */
+  .bp{width:24em;margin:1.1em auto 0;background:#fff;border-radius:.3em;box-shadow:0 .1em .5em rgba(50,52,58,.1);padding:.9em 1.2em 1em;opacity:0}
+  .bhead{display:flex;align-items:center;gap:.6em;padding-bottom:.7em;border-bottom:.05em solid #F0F3F8}
+  .blogo{font-size:.6em;font-weight:700;color:#2932E1;letter-spacing:.01em;white-space:nowrap}
+  .blogo span{color:#4E6EF2;font-weight:500;font-size:.62em;margin-left:.24em}
+  .bbar{flex:1;display:flex;align-items:center;gap:.4em;border:.06em solid #E1E6F0;border-radius:1.4em;padding:.32em .7em}
+  .bbar .q{font-size:.4em;color:var(--ink)}
+  .bbar .b{margin-left:auto;font-size:.34em;color:#fff;background:#4E6EF2;border-radius:1em;padding:.34em .7em}
+  .bw{margin-top:.7em;display:flex;align-items:baseline;gap:.5em;opacity:0}
+  .bw .n{font-size:.7em;font-weight:700;color:#1F2329;letter-spacing:.02em}
+  .bw .p{font-size:.4em;color:#86909C}
+  .bd{margin-top:.4em;opacity:0}
+  .bd .row{display:flex;gap:.5em;margin:.24em 0}
+  .bd .k{flex:0 0 2.5em;font-size:.4em;color:#8A94A6}
+  .bd .v{flex:1;font-size:.42em;line-height:1.8;color:#2A2F38}
+  .bd .v b{color:#2932E1;font-weight:600}
+  .bd .v u{text-decoration:none;color:#2932E1}
+  .btags{margin-top:.5em;display:flex;gap:.35em;flex-wrap:wrap;opacity:0}
+  .btag{font-size:.36em;line-height:1;padding:.42em .7em;border-radius:1em;background:#F2F5FF;color:#4E6EF2;border:.05em solid #E1E7FF}
+  .btag.g{background:#F3FBF8;color:#1B9E7C;border-color:#D6F1E8}
+  .bfoot{margin-top:.65em;padding-top:.45em;border-top:.05em solid #F0F3F8;font-size:.34em;color:#A9B1BE;opacity:0}
+
+  /* ---------- 人民网结果 ---------- */
+  .rp{width:24em;margin:.9em auto 0;opacity:0}
+  .rhead{display:flex;align-items:center;gap:.6em;padding-bottom:.5em}
+  .rlogo{font-size:.56em;font-weight:700;color:#C62F2F;letter-spacing:.02em;white-space:nowrap}
+  .rbar{flex:1;display:flex;align-items:center;gap:.4em;border:.06em solid #E1E6F0;border-radius:.2em;padding:.34em .7em;background:#fff}
+  .rbar .q{font-size:.4em;color:var(--ink)}
+  .rbar .b{margin-left:auto;font-size:.34em;color:#fff;background:#C62F2F;border-radius:.16em;padding:.34em .7em}
+  .rcnt{font-size:.36em;color:#8A94A6;margin:.2em 0 .45em}
+  .rr{background:#fff;border-radius:.2em;padding:.55em .8em;margin-bottom:.36em;opacity:0}
+  .rr .t{font-size:.43em;color:#1A57C8;line-height:1.6;margin-bottom:.18em}
+  .rr em{font-style:normal;color:#C62F2F;background:rgba(198,47,47,.08);border-radius:.1em;padding:0 .08em}
+  .rr .s{font-size:.34em;color:#9AA3B2;margin-bottom:.14em}
+  .rr .d{font-size:.38em;color:#4E5969;line-height:1.7}
+
+  /* ---------- 释义卡（含左侧三个出口） ---------- */
+  .tip{
+    position:absolute;z-index:14;width:14.2em;display:flex;align-items:stretch;
+    background:#fff;border:.035em solid #e2e6ea;border-radius:.34em;color:#333;
+    box-shadow:0 .2em .85em rgba(0,0,0,.17);opacity:0;transform-origin:0 0;overflow:hidden;
+  }
+  .side{
+    flex:0 0 2.95em;background:#fafbfc;border-right:.035em solid #f0f2f5;
+    padding:.42em .3em;display:flex;flex-direction:column;gap:.26em;
+  }
+  .sbtn{
+    display:block;text-align:center;font-size:.38em;line-height:1.25;color:var(--tip-blue);
+    background:#fff;border:.03em solid #e5e6eb;border-radius:.28em;padding:.52em .15em;
+    white-space:nowrap;
+  }
+  .sbtn .ssub{display:block;font-size:.82em;line-height:1.2;color:#86909c;margin-top:.12em}
+  .sbtn.hot{background:#eef3ff;border-color:#bedaff}
+  .sbtn.fav-on{color:#1B9E7C;border-color:#BFE9DC;background:#F3FBF8}
+  .sbtn.fav-on .ssub{color:#4FA98F}
+  .tmain{flex:1;min-width:0;display:flex;flex-direction:column}
+  .th{
+    display:flex;align-items:baseline;gap:.28em;padding:.34em .5em .26em;
+    border-bottom:.035em solid #f0f2f5;background:#fafbfc;
+  }
+  .tw{font-size:.54em;font-weight:700;color:#1f2329;letter-spacing:.02em}
+  .tp{font-size:.36em;color:#86909c}
+  .tagg{
+    margin-left:auto;font-size:.32em;font-weight:600;color:#178E70;background:#E9F8F3;
+    border-radius:1em;padding:.22em .55em;white-space:nowrap;line-height:1;
+  }
+  .tb{padding:.24em .5em .3em}
+  .ts{display:flex;gap:.4em;margin:.18em 0;opacity:0}
+  .tk{flex:0 0 1.3em;font-size:.4em;font-weight:600;color:var(--tip-blue);line-height:1.75}
+  .tv{flex:1;font-size:.4em;line-height:1.75;color:#333}
+  .ex{display:block;background:#f7f8fa;border-radius:.18em;padding:.16em .3em;color:#4e5969;margin-top:.06em}
+  .ex i{font-style:normal;color:#a9aeb8;display:block;font-size:.92em;margin-top:.1em}
+  .tf{
+    display:flex;justify-content:space-between;gap:.4em;padding:.22em .5em .26em;
+    border-top:.035em solid #f0f2f5;font-size:.32em;color:#86909c;opacity:0;
+  }
+
+  /* ---------- 光标 ---------- */
+  .cursor{position:absolute;left:0;top:0;width:.82em;height:.82em;z-index:18;pointer-events:none;opacity:0}
+  .cursor svg{width:100%;height:100%;display:block;filter:drop-shadow(0 .06em .12em rgba(0,0,0,.28))}
+  .ring{
+    position:absolute;left:0;top:0;width:.7em;height:.7em;border-radius:50%;
+    border:.08em solid rgba(60,124,252,.65);z-index:17;opacity:0;pointer-events:none;
+  }
+
+  /* ---------- 提示 ---------- */
+  .chip{position:absolute;z-index:16;opacity:0}
+  .chip .tx{
+    display:flex;align-items:center;gap:.42em;font-size:.52em;line-height:1;
+    padding:.62em .85em;border-radius:2em;white-space:nowrap;
+    background:rgba(255,255,255,.97);border:.07em solid var(--line);
+    box-shadow:0 .2em .7em -.25em rgba(50,52,58,.35);
+  }
+  .chip .d{width:.5em;height:.5em;border-radius:50%;flex:none}
+  .chip.ok .tx{color:#178E70;border-color:rgba(43,200,160,.45)}
+  .chip.ok .d{background:var(--ok)}
+
+  /* 收藏到坚果云 结果卡 */
+  .fav{
+    position:absolute;right:1.1em;bottom:1.1em;z-index:16;opacity:0;
+    display:flex;align-items:center;gap:.55em;
+    background:#fff;border:.07em solid #E6EAF2;border-radius:.5em;padding:.6em .8em;
+    box-shadow:0 .3em 1em -.3em rgba(50,52,58,.4);
+  }
+  .fav .ic{
+    width:1.5em;height:1.5em;border-radius:.3em;background:#F3FBF8;color:#1B9E7C;
+    font-size:.5em;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;
+    border:.06em solid #CDEDE2;
+  }
+  .fav b{display:block;font-size:.44em;font-weight:600;color:var(--ink);line-height:1.5;white-space:nowrap}
+  .fav span{display:block;font-size:.38em;color:var(--ink-2);line-height:1.6;white-space:nowrap}
+  .fav .cloud{color:#1B9E7C;font-weight:600}
+
+  .flash{position:absolute;inset:0;background:#fff;z-index:20;opacity:0;pointer-events:none}
+
+  .cap{margin:12px 2px 0;font-size:12.5px;color:var(--ink-2);display:flex;gap:14px;flex-wrap:wrap}
+  .cap span{display:flex;align-items:center;gap:6px}
+  .cap em{width:7px;height:7px;border-radius:50%;display:block;font-style:normal}
+  .cap .b em{background:var(--ok)}
+  .cap .c em{background:var(--tip-blue)}
+</style>
+</head>
+<body>
+<script>if(location.search.indexOf('embed')>-1)document.body.classList.add('embed');</script>
+
+<div class="wrap">
+  <div class="head">
+    <h1>演示 04 · 粉笔题库·悬浮查词（悬停即释义 + 三个出口）</h1>
+    <p>鼠标只要停在词上，释义卡就贴在词的右边——整词识别、成语走本地词库离线秒开，<b>眼睛不离题</b>。卡片左侧还挂着三个出口：百度汉语查更全的词义、人民网看它在新闻里的真实用法、收藏进坚果云当自己的词库。</p>
+  </div>
+
+  <div class="scene">
+    <div class="stage">
+      <div class="stage-in" id="scene">
+
+        <div class="appbar">
+          <span class="back">‹ 返回</span>
+          <span class="ttl">2024 国考《行测》（副省级·节选）</span>
+          <span class="sp"></span>
+          <span class="meta">言语理解 · 逻辑填空　<b>12 / 40</b></span>
+        </div>
+
+        <div class="qwrap" id="qwrap">
+          <div class="qnum">12.</div>
+          <div class="stem">这部纪录片虽不算惊艳，但叙事扎实、细节克制，把一群普通人的十年拍得可信，整体表现<span class="blank"></span>。</div>
+          <div class="ask">填入画横线部分最恰当的一项是：</div>
+          <div class="opts">
+            <div class="opt"><span class="ol">A</span><span class="ot"><span class="w" id="w1">差强人意</span></span></div>
+            <div class="opt"><span class="ol">B</span><span class="ot">尽善尽美</span></div>
+            <div class="opt"><span class="ol">C</span><span class="ot">大跌眼镜</span></div>
+            <div class="opt"><span class="ol">D</span><span class="ot">无所不为</span></div>
+          </div>
+        </div>
+
+        <!-- C1：百度汉语 -->
+        <div class="page" id="extBaidu">
+          <div class="tabbar">
+            <div class="tab dim">粉笔题库 · 做题</div>
+            <div class="tab now">百度汉语 · 差强人意 <span class="x">×</span></div>
+            <div class="tab dim" style="max-width:2em;justify-content:center">+</div>
+          </div>
+          <div class="sbody" style="background:#F4F6FB">
+            <div class="bp" id="bp">
+              <div class="bhead">
+                <span class="blogo">百度汉语<span>hanyu.baidu.com</span></span>
+                <span class="bbar"><span class="q">差强人意</span><span class="b">查一下</span></span>
+              </div>
+              <div class="bw"><span class="n">差强人意</span><span class="p">chā qiáng rén yì</span></div>
+              <div class="bd">
+                <div class="row"><span class="k">基本释义</span><span class="v">差：尚，略；强：振奋。指<u>勉强使人满意</u>。</span></div>
+                <div class="row"><span class="k">详细释义</span><span class="v">多用于评价结果：不算好，但还过得去。<b>不是</b>「不让人满意」。</span></div>
+              </div>
+              <div class="btags">
+                <span class="btag">近义 尚可</span><span class="btag">近义 勉强人意</span>
+                <span class="btag g">反义 大失所望</span><span class="btag g">反义 尽善尽美</span>
+              </div>
+              <div class="bfoot">释义来源：汉典 · 百度汉语　｜　本地词库没有的词，从这里查更全的</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- C2：人民网搜用法 -->
+        <div class="page" id="extRmw">
+          <div class="tabbar">
+            <div class="tab dim">粉笔题库 · 做题</div>
+            <div class="tab now">人民网搜索 · 差强人意 <span class="x">×</span></div>
+            <div class="tab dim" style="max-width:2em;justify-content:center">+</div>
+          </div>
+          <div class="sbody" style="background:#F4F6FB;padding-top:.85em">
+            <div class="rp" id="rp">
+              <div class="rhead">
+                <span class="rlogo">人民网</span>
+                <span class="rbar"><span class="q">差强人意</span><span class="b">搜索</span></span>
+              </div>
+              <div class="rcnt">找到 2,146 条结果 · 按相关度排序</div>
+              <div class="rr"><div class="t">老旧小区改造：进度上来了，<em>差强人意</em>的细节还得补</div>
+                <div class="s">人民网 · 观点频道</div>
+                <div class="d">……改造完成率不低，但停车、加装电梯这些居民最在意的细节仍<em>差强人意</em>……</div></div>
+              <div class="rr"><div class="t">县域文旅这半年：热度不减，服务<em>差强人意</em></div>
+                <div class="s">人民网 · 地方频道</div>
+                <div class="d">……客流翻倍，接驳与住宿体验却只能算<em>差强人意</em>……</div></div>
+              <div class="rr"><div class="t">评论：让「<em>差强人意</em>」变成「令人满意」</div>
+                <div class="s">人民网 · 人民时评</div>
+                <div class="d">……把每一处<em>差强人意</em>的地方改到位，才是真正的民生答卷……</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 释义卡 -->
+        <div class="tip" id="card1">
+          <div class="side">
+            <span class="sbtn" id="sb0">百度汉语<span class="ssub">查词义</span></span>
+            <span class="sbtn" id="sb1">人民网<span class="ssub">搜用法</span></span>
+            <span class="sbtn" id="sb2">收藏<span class="ssub">到坚果云</span></span>
+          </div>
+          <div class="tmain">
+            <div class="th"><span class="tw">差强人意</span><span class="tp">chā qiáng rén yì</span><span class="tagg">本地 · 0ms</span></div>
+            <div class="tb">
+              <div class="ts"><span class="tk">释义</span><span class="tv">差：尚，略；强：振奋。勉强使人满意。</span></div>
+              <div class="ts"><span class="tk">用法</span><span class="tv">用于「勉强够得上满意」，不是「不让人满意」——它的高频误用点。</span></div>
+              <div class="ts"><span class="tk">出处</span><span class="tv">《后汉书·吴汉传》乃叹曰「吴公差强人意，隐若一敌国矣」。</span></div>
+              <div class="ts"><span class="tk">例句</span><span class="tv"><span class="ex">我得了这一封信，似乎还差强人意。<i>清·吴趼人《二十年目睹之怪现状》</i></span></span></div>
+            </div>
+            <div class="tf"><span>来源：成语词库（离线）</span><span>中键点词可调出按钮</span></div>
+          </div>
+        </div>
+
+        <div class="chip ok" id="chipGreen" style="left:1.15em;bottom:.95em"><span class="tx"><span class="d"></span>只悬停不点击 · 释义贴在词右边，题一直在眼前</span></div>
+        <div class="chip ok" id="chipGreen2" style="left:1.15em;bottom:.95em"><span class="tx"><span class="d"></span>查词义 · 搜真实用法 · 存进坚果云，都在这张卡左边</span></div>
+
+        <div class="fav" id="favCard">
+          <span class="ic">云</span>
+          <span><b>已收藏「差强人意」</b><span id="favSub">正在同步到坚果云…</span></span>
+        </div>
+
+        <div class="cursor" id="cursor">
+          <svg viewBox="0 0 24 24"><path d="M5.2 2.6 20 11.1l-6.6 1.7-2.3 6.9z" fill="#32343A" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="ring" id="r0"></div>
+        <div class="ring" id="r1"></div>
+        <div class="ring" id="r2"></div>
+
+        <div class="flash" id="flash"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cap">
+    <span class="b"><em></em>脚本：鼠标停在词上就出卡（整词识别、成语离线秒开）</span>
+    <span class="c"><em></em>卡片左边三个出口：百度汉语查词义 / 人民网搜真实用法 / 收藏进坚果云</span>
+  </div>
+</div>
+
+<script>
+(function(){
+  const sceneEl = document.getElementById('scene');
+  const w1 = document.getElementById('w1');
+  const extBaidu= document.getElementById('extBaidu');
+  const extRmw  = document.getElementById('extRmw');
+  const card1 = document.getElementById('card1');
+  const sb = ['sb0','sb1','sb2'].map(id => document.getElementById(id));
+  const chipGreen = document.getElementById('chipGreen');
+  const chipGreen2 = document.getElementById('chipGreen2');
+  const bp = document.getElementById('bp');
+  const bRows = [...document.querySelectorAll('#extBaidu .bw, #extBaidu .bd, #extBaidu .btags, #extBaidu .bfoot')];
+  const rp = document.getElementById('rp');
+  const rRows = [...document.querySelectorAll('#extRmw .rr')];
+  const favCard = document.getElementById('favCard');
+  const favSub  = document.getElementById('favSub');
+  const cursor = document.getElementById('cursor');
+  const rings = ['r0','r1','r2'].map(id => document.getElementById(id));
+  const flash  = document.getElementById('flash');
+
+  const rows1 = [...card1.querySelectorAll('.ts')];
+  const foot1 = card1.querySelector('.tf');
+
+  /* ---------- 时间轴 ---------- */
+  const CYCLE = 9800;
+
+  /* A：悬停出卡 */
+  const T_CUR_B = 500, T_CUR_B2 = 1000;
+  const T_HL1   = 980;
+  const T_CARD1 = 1100;
+  const T_ROWS1 = [1160, 1320, 1480, 1640];
+  const T_GREEN_B = 2080;
+
+  /* B：三个出口 */
+  const T_CUR_C1 = 2720, T_CUR_C1B = 3160;
+  const T_BAIDU  = 3230, T_BAIDU_OUT = 4800;
+  const T_BAIDU_ROWS = [3620, 3780, 3940, 4100];
+  const T_CUR_C2 = 5100, T_CUR_C2B = 5540;
+  const T_RMW    = 5620, T_RMW_OUT = 7100;
+  const T_RMW_ROWS = [5980, 6100, 6220];
+  const T_CUR_C3 = 7380, T_CUR_C3B = 7830;
+  const T_FAV    = 7890, T_FAV_B = 8140;
+  const T_GREEN_C = 9000;
+  const OUT_A   = 9500;
+
+  function em(){ return parseFloat(getComputedStyle(sceneEl).fontSize); }
+  function clamp01(x){ return x < 0 ? 0 : x > 1 ? 1 : x; }
+  function ease(x){ return x < .5 ? 2*x*x : 1 - Math.pow(-2*x + 2, 2)/2; }
+  function seg(t,a,b){ return clamp01((t - a) / (b - a)); }
+  function lerp(a, b, k){ return [a[0] + (b[0]-a[0])*k, a[1] + (b[1]-a[1])*k]; }
+
+  /* ---------- 定位：卡片贴词右侧 + 三颗按钮坐标 ---------- */
+  let wordC = [0,0], sbPos = [[0,0],[0,0],[0,0]], headH = 40, full = 260;
+
+  function measure(){
+    const e = em();
+    const s = sceneEl.getBoundingClientRect();
+    const r = w1.getBoundingClientRect();
+    const wx = (r.left - s.left)/e, wy = (r.top - s.top)/e, ww = r.width/e, wh = r.height/e;
+    const cardW = card1.offsetWidth / e;
+    const cardH = card1.scrollHeight / e;
+    const sceneW = s.width / e, sceneH = s.height / e;
+
+    let x = wx + ww + .55;
+    if (x + cardW > sceneW - .4) x = wx - cardW - .55;
+    let y = wy + wh/2 - 1.3;
+    if (y + cardH > sceneH - .5) y = sceneH - cardH - .5;
+    if (y < 2.5) y = 2.5;
+    card1.style.left = x + 'em';
+    card1.style.top  = y + 'em';
+    wordC = [wx + ww/2, wy + wh/2];
+
+    sb.forEach((el, i) => {
+      const b = el.getBoundingClientRect();
+      sbPos[i] = [ (b.left + b.width/2 - s.left)/e, (b.top + b.height/2 - s.top)/e ];
+    });
+  }
+
+  function putCursor(c){ cursor.style.transform = `translate(${c[0] - .16}em, ${c[1] - .1}em)`; }
+  function ringAt(el, c, k){
+    el.style.opacity = (1 - k) * .9;
+    el.style.transform = `translate(${c[0] - .35}em, ${c[1] - .35}em) scale(${1 + k * 2.4})`;
+  }
+
+  function render(t){
+    /* ---------- 题目 ---------- */
+    w1.classList.toggle('mark', t >= T_HL1 && t < OUT_A - 200);
+
+    /* ---------- 提示胶囊 ---------- */
+    chipGreen.style.opacity = ease(seg(t, T_GREEN_B, T_GREEN_B + 300)) * (1 - ease(seg(t, T_GREEN_C - 40, T_GREEN_C + 200)));
+    chipGreen2.style.opacity = ease(seg(t, T_GREEN_C, T_GREEN_C + 300)) * (1 - ease(seg(t, OUT_A - 150, OUT_A)));
+
+    /* ---------- 释义卡 ---------- */
+    const c1in  = ease(seg(t, T_CARD1, T_CARD1 + 200));
+    const c1out = ease(seg(t, OUT_A - 320, OUT_A - 80));
+    const hideCard = Math.max(
+      ease(seg(t, T_BAIDU, T_BAIDU + 380)) * (1 - ease(seg(t, T_BAIDU_OUT, T_BAIDU_OUT + 380))),
+      ease(seg(t, T_RMW, T_RMW + 380)) * (1 - ease(seg(t, T_RMW_OUT, T_RMW_OUT + 380)))
+    );
+    card1.style.opacity = c1in * (1 - c1out) * (1 - hideCard);
+    const grow = ease(seg(t, T_CARD1, T_CARD1 + 430));
+    card1.style.maxHeight = (headH + grow * (full - headH)) + 'px';
+    card1.style.transform = `scale(${.94 + c1in * .06})`;
+    rows1.forEach((el, i) => {
+      const k = ease(seg(t, T_ROWS1[i], T_ROWS1[i] + 220));
+      el.style.opacity = k;
+      el.style.transform = `translateY(${(1 - k) * .28}em)`;
+    });
+    foot1.style.opacity = ease(seg(t, T_ROWS1[3] + 200, T_ROWS1[3] + 420));
+
+    /* 侧栏按钮 hover / 收藏态 */
+    sb.forEach((el, i) => {
+      let hot = false;
+      if (i === 0) hot = t >= T_CUR_C1B - 60 && t < T_BAIDU + 100;
+      if (i === 1) hot = t >= T_CUR_C2B - 60 && t < T_RMW + 100;
+      if (i === 2) hot = t >= T_CUR_C3B - 60;
+      el.classList.toggle('hot', hot);
+    });
+    const faved = t >= T_FAV;
+    sb[2].classList.toggle('fav-on', faved);
+    sb[2].innerHTML = faved ? '已收藏<span class="ssub">点此取消</span>' : '收藏<span class="ssub">到坚果云</span>';
+
+    /* ---------- C1：百度汉语 ---------- */
+    const bIn  = ease(seg(t, T_BAIDU, T_BAIDU + 380));
+    const bOut = ease(seg(t, T_BAIDU_OUT, T_BAIDU_OUT + 380));
+    const bk = bIn * (1 - bOut);
+    extBaidu.style.transform = `translateY(${(1 - bk) * 101}%)`;
+    bp.style.opacity = ease(seg(t, T_BAIDU + 120, T_BAIDU + 420)) * (1 - bOut);
+    bRows.forEach((el, i) => {
+      const k = ease(seg(t, T_BAIDU_ROWS[i], T_BAIDU_ROWS[i] + 240)) * (1 - bOut);
+      el.style.opacity = k;
+      el.style.transform = `translateY(${(1 - k) * .3}em)`;
+    });
+
+    /* ---------- C2：人民网 ---------- */
+    const rIn  = ease(seg(t, T_RMW, T_RMW + 380));
+    const rOut = ease(seg(t, T_RMW_OUT, T_RMW_OUT + 380));
+    const rk = rIn * (1 - rOut);
+    extRmw.style.transform = `translateY(${(1 - rk) * 101}%)`;
+    rp.style.opacity = ease(seg(t, T_RMW + 120, T_RMW + 400)) * (1 - rOut);
+    rRows.forEach((el, i) => {
+      const k = ease(seg(t, T_RMW_ROWS[i], T_RMW_ROWS[i] + 220)) * (1 - rOut);
+      el.style.opacity = k;
+      el.style.transform = `translateY(${(1 - k) * .3}em)`;
+    });
+
+    /* ---------- C3：收藏到坚果云 ---------- */
+    const fk = ease(seg(t, T_FAV + 80, T_FAV + 400)) * (1 - ease(seg(t, OUT_A - 150, OUT_A)));
+    favCard.style.opacity = fk;
+    favCard.style.transform = `translateX(${(1 - fk) * 1.1}em)`;
+    favSub.innerHTML = (t >= T_FAV_B)
+      ? '<span class="cloud">已同步 · 云端共 27 个词</span>'
+      : '正在同步到坚果云…';
+
+    /* ---------- 光标 ---------- */
+    let c = null, cop = 0;
+    if (t < T_CUR_C1){
+      c = lerp([27.0, 15.6], wordC, ease(seg(t, T_CUR_B, T_CUR_B2)));
+      cop = ease(seg(t, T_CUR_B - 260, T_CUR_B - 40));
+    } else if (t < T_CUR_C2){
+      c = lerp(wordC, sbPos[0], ease(seg(t, T_CUR_C1, T_CUR_C1B))); cop = 1;
+    } else if (t < T_CUR_C3){
+      c = lerp(sbPos[0], sbPos[1], ease(seg(t, T_CUR_C2, T_CUR_C2B))); cop = 1;
+    } else {
+      c = lerp(sbPos[1], sbPos[2], ease(seg(t, T_CUR_C3, T_CUR_C3B))); cop = 1;
+    }
+    if (c){
+      putCursor(c);
+      cursor.style.opacity = cop * (1 - ease(seg(t, OUT_A - 150, OUT_A)));
+    }
+
+    /* ---------- 涟漪 ---------- */
+    rings.forEach(el => { el.style.opacity = 0; });
+    const k1 = seg(t, T_BAIDU - 70, T_BAIDU + 330);
+    if (k1 > 0 && k1 < 1) ringAt(rings[0], sbPos[0], k1);
+    const k2 = seg(t, T_RMW - 70, T_RMW + 330);
+    if (k2 > 0 && k2 < 1) ringAt(rings[1], sbPos[1], k2);
+    const k3 = seg(t, T_FAV - 60, T_FAV + 340);
+    if (k3 > 0 && k3 < 1) ringAt(rings[2], sbPos[2], k3);
+
+    /* ---------- 转场（首帧自白淡入，结尾淡出成白，接缝不跳） ---------- */
+    let a = 0;
+    if (t < 300) a = 1 - seg(t, 40, 300);
+    else if (t >= OUT_A) a = seg(t, OUT_A, OUT_A + 300);
+    flash.style.opacity = a;
+  }
+
+  let start = performance.now(), paused = false;
+  function loop(now){
+    if (!paused) render((now - start) % CYCLE);
+    requestAnimationFrame(loop);
+  }
+  function boot(){
+    measure();
+    headH = card1.querySelector('.th').offsetHeight + 2;
+    card1.style.maxHeight = 'none';
+    full  = card1.scrollHeight;
+    card1.style.maxHeight = '';
+    measure();
+    render(0);
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce){ render(3500); paused = true; return; }
+    requestAnimationFrame(loop);
+  }
+  window.__setT = function(t){ paused = true; render(t); };
+  window.__play = function(){ paused = false; start = performance.now(); };
+  window.addEventListener('resize', () => { measure(); render(0); });
+
+  if (document.readyState === 'complete') boot();
+  else window.addEventListener('load', boot);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>演示 03 · 粉笔试卷排版打印（真题排版 + 三大块全导出）</title>
+<style>
+  :root{
+    --blue:#3C7CFC;
+    --blue-deep:#2E6AE8;
+    --blue-soft:#EFF2FE;
+    --ink:#32343A;
+    --ink-2:#636E92;
+    --ink-3:#AFB6BC;
+    --line:#E9EDF4;
+    --grey:#F5F7FA;
+    --ok:#2BC8A0;
+    --bad:#FF5A5A;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    padding:34px 20px 54px;
+    background:#EEF2F7;
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:960px;margin:0 auto}
+
+  /* 被作品集页面以 iframe 嵌入时：去掉标题与留白，画面铺满整块 */
+  body.embed{padding:0;background:transparent}
+  body.embed .head{display:none}
+  body.embed .wrap{max-width:none;margin:0}
+  body.embed .scene{
+    position:fixed;inset:0;aspect-ratio:auto;border-radius:0;border:0;box-shadow:none;
+  }
+
+  .head{margin:0 0 16px}
+  .head h1{font-size:19px;font-weight:600;margin:0 0 7px;letter-spacing:-.01em}
+  .head p{font-size:13px;line-height:1.7;color:var(--ink-2);margin:0}
+  .head b{color:var(--blue);font-weight:600}
+
+  .scene{
+    position:relative;aspect-ratio:16/10;border-radius:16px;overflow:hidden;
+    background:#fff;border:1px solid rgba(50,52,58,.08);
+    box-shadow:0 1px 2px rgba(50,52,58,.05),0 18px 40px -24px rgba(50,52,58,.5);
+  }
+  .stage{position:absolute;inset:0;container-type:size}
+  .stage-in{position:absolute;inset:0;font-size:3.15cqw}
+
+  /* ---------- 顶栏 ---------- */
+  .appbar{
+    position:absolute;top:0;left:0;right:0;height:2.4em;
+    display:flex;align-items:center;gap:.7em;padding:0 1em;
+    background:#fff;border-bottom:.06em solid var(--line);z-index:12;
+  }
+  .appbar .back{font-size:.56em;color:var(--blue)}
+  .appbar .ttl{font-size:.56em;color:var(--ink);font-weight:500}
+  .appbar .sp{flex:1}
+  .appbar .sel{font-size:.56em;color:var(--ink-3);opacity:0}
+  .appbar .sel b{color:var(--blue);font-weight:700;font-size:1.15em;margin:0 .1em}
+  .appbar .btn{
+    display:flex;align-items:center;font-size:.56em;font-weight:600;
+    border-radius:.42em;padding:.55em 1.05em;background:var(--blue);color:#fff;white-space:nowrap;
+  }
+  .appbar .btn.done{background:var(--ok)}
+
+  /* ---------- 主区 ---------- */
+  .main{position:absolute;left:0;right:0;top:2.4em;bottom:0;display:flex}
+
+  .list{
+    position:relative;flex:none;width:13.2em;background:#fff;
+    border-right:.06em solid var(--line);padding:.85em .8em 0;overflow:hidden;
+  }
+  .grp{margin-bottom:.15em}
+  .ghead{display:flex;align-items:center;gap:.4em;height:1.05em}
+  .gname{font-size:.44em;font-weight:600;color:var(--ink);transition:color .2s}
+  .gcnt{font-size:.38em;color:var(--ink-3)}
+  .ghead .sp{flex:1}
+  .grp.done .gname{color:var(--blue)}
+  .grp.done .gcnt{color:var(--blue)}
+  .allbtn{
+    font-size:.38em;font-weight:600;line-height:1;padding:.42em .6em;border-radius:.3em;
+    background:var(--grey);color:var(--ink-2);opacity:0;white-space:nowrap;
+  }
+  .allbtn.on{background:var(--blue);color:#fff}
+
+  .cells{display:grid;grid-template-columns:repeat(8,1fr);gap:.2em;margin:.34em 0 .5em}
+  .cell{
+    position:relative;height:.98em;border:.06em solid #DFE5EE;border-radius:.2em;
+    display:flex;align-items:center;justify-content:center;background:#fff;
+  }
+  .cell .n{font-size:.42em;color:#B4BCC8;font-variant-numeric:tabular-nums}
+  .cell .ck{
+    position:absolute;left:.16em;top:.16em;width:.28em;height:.28em;
+    border:.07em solid #C9D2E0;border-radius:.06em;opacity:0;background:#fff;
+  }
+  .cell.on{border-color:var(--blue);background:var(--blue)}
+  .cell.on .n{color:#fff;font-weight:600}
+  .cell.on .ck{background:#fff;border-color:#fff}
+
+  .lnote{
+    position:absolute;left:.8em;right:.8em;bottom:.7em;text-align:center;
+    font-size:.46em;color:var(--ink-3);line-height:1.55;
+  }
+
+  /* ---------- 预览 ---------- */
+  .preview{position:relative;flex:1;background:#E8EDF4;overflow:hidden}
+  .sheets{position:absolute;left:0;right:0;top:.6em;will-change:transform}
+  .thumb{
+    position:relative;width:7.2em;height:10.2em;margin:0 auto .5em;
+    background:#fff;border-radius:.06em;box-shadow:0 .06em .32em rgba(50,52,58,.16);
+    padding:.8em .7em 1.1em;
+  }
+  .thumb i{display:block;height:.26em;border-radius:.13em;background:#E4E9F1;margin-bottom:.3em}
+  .thumb .pf{position:absolute;left:0;right:0;bottom:.34em;text-align:center}
+  .thumb .pf span{font-size:.38em;color:#9AA3B2}
+
+  .pind{position:absolute;left:1.1em;bottom:.85em;font-size:.48em;color:#8A93A6}
+  .badge{
+    position:absolute;right:1.05em;top:.85em;padding:.5em .8em;border-radius:2em;
+    background:rgba(255,255,255,.96);border:.06em solid var(--line);
+    color:var(--ink-2);box-shadow:0 .15em .5em -.2em rgba(50,52,58,.28);
+    transform-origin:100% 50%;z-index:13;
+  }
+  .badge span{font-size:.5em;font-weight:600;letter-spacing:.01em}
+
+  /* ---------- 真卷（宋体排版） ---------- */
+  .zpad{position:absolute;top:.9em;left:3.35em;width:11.03em;height:15.6em;opacity:0;transform-origin:50% 50%}
+  .zpage{
+    position:absolute;inset:0;background:#fff;border-radius:.06em;
+    box-shadow:0 .1em .6em rgba(50,52,58,.22);
+    font-family:"Songti SC","STSong","SimSun",serif;
+    font-size:.30em;line-height:1.9;color:var(--ink);
+  }
+  .zhead{text-align:center;font-size:1.06em;font-weight:700;line-height:1.7;letter-spacing:.04em;
+    padding:2em 2.6em 1.3em;border-bottom:.06em solid #DDE3EC;margin-bottom:1.3em}
+  .zbody{position:relative;padding:0 2.6em}
+  .zbody .zq{position:relative;padding-left:2.6em;margin-bottom:.7em;text-align:justify}
+  .zbody .zq:last-child{margin-bottom:0}
+  .zbody .zq .no{position:absolute;left:0;top:0;font-weight:500}
+  .zbody .zopts{display:grid;grid-template-columns:1fr 1fr;gap:0 .6em;margin-top:.08em}
+  .zbody .zopts span{white-space:nowrap}
+  .zf{position:absolute;left:0;right:0;bottom:1.6em;text-align:center}
+  .zf span{font-size:.9em;color:#9AA3B2}
+
+  /* 标注框 */
+  .anno{position:absolute;border:1.5px solid rgba(60,124,252,.85);border-radius:3px;opacity:0}
+  .zspec{position:absolute;left:0;right:0;bottom:.55em;text-align:center;opacity:0}
+  .zspec span{
+    font-size:.42em;color:#2E6AE8;background:rgba(239,242,254,.96);
+    padding:.5em .85em;border-radius:2em;line-height:1;letter-spacing:.01em;
+    box-shadow:0 .1em .4em -.1em rgba(60,124,252,.35);
+  }
+
+  /* ---------- 成卷三联（三大块全导出） ---------- */
+  .spread{position:absolute;left:0;right:0;top:1.7em;display:flex;justify-content:center;gap:.72em;z-index:11}
+  .sp{
+    position:relative;width:4.42em;height:6.05em;background:#fff;border-radius:.06em;
+    box-shadow:0 .12em .55em rgba(50,52,58,.2);padding:.55em .55em .55em;opacity:0;
+  }
+  .sp .pt{text-align:center;font-family:"Songti SC","STSong","SimSun",serif;line-height:1.45;margin-bottom:.42em}
+  .sp .pt .k{display:block;font-size:.26em;color:#9AA3B2;letter-spacing:.08em}
+  .sp .pt .nm{display:block;font-size:.31em;font-weight:700;color:var(--ink);letter-spacing:.05em}
+  .sp .pt .cn{display:block;font-size:.24em;color:var(--blue);letter-spacing:.04em;margin-top:.1em}
+  .sp .pl .q{display:block;height:.19em;border-radius:.1em;background:#D9E1EE;margin-bottom:.16em}
+  .sp .og{display:grid;grid-template-columns:1fr 1fr;gap:.12em .26em;margin-bottom:.36em}
+  .sp .og i{display:block;height:.15em;border-radius:.08em;background:#EBF0F7}
+  .sp .pn{position:absolute;left:0;right:0;bottom:.34em;text-align:center;font-size:.23em;color:#AEB6C2}
+  .scap{position:absolute;left:0;right:0;bottom:1.05em;text-align:center;opacity:0}
+  .scap span{
+    font-size:.46em;color:#2E6AE8;background:rgba(255,255,255,.95);
+    padding:.55em .9em;border-radius:2em;line-height:1;letter-spacing:.01em;
+    box-shadow:0 .15em .5em -.15em rgba(60,124,252,.35);
+  }
+
+  /* ---------- 浮层 ---------- */
+  .chip{position:absolute;z-index:14;opacity:0}
+  .chip .tx{
+    display:flex;align-items:center;gap:.42em;font-size:.58em;line-height:1;
+    padding:.62em .85em;border-radius:2em;white-space:nowrap;
+    background:rgba(255,255,255,.97);border:.07em solid var(--line);
+    box-shadow:0 .2em .7em -.25em rgba(50,52,58,.35);
+  }
+  .chip .d{width:.5em;height:.5em;border-radius:50%;flex:none}
+  .chip.bad .tx{color:#D8383C;border-color:rgba(255,90,90,.4)}
+  .chip.bad .d{background:var(--bad)}
+  .chip.ok .tx{color:#178E70;border-color:rgba(43,200,160,.45)}
+  .chip.ok .d{background:var(--ok)}
+
+  .toast{
+    position:absolute;right:1.1em;bottom:1.1em;z-index:15;opacity:0;
+    display:flex;align-items:center;gap:.6em;
+    background:#fff;border:.07em solid var(--line);border-radius:.5em;
+    padding:.65em .8em;box-shadow:0 .3em 1em -.3em rgba(50,52,58,.45);
+  }
+  .toast .ic{
+    width:1.75em;height:2.05em;border-radius:.18em;background:#FFF1F0;color:var(--bad);
+    font-size:.5em;font-weight:700;display:flex;align-items:flex-end;justify-content:center;
+    padding-bottom:.25em;letter-spacing:.04em;flex:none;border:.06em solid rgba(255,90,90,.25);
+  }
+  .toast b{display:block;font-size:.56em;font-weight:600;color:var(--ink);line-height:1.5;white-space:nowrap}
+  .toast span{display:block;font-size:.48em;color:var(--ink-2);line-height:1.6}
+
+  .touch{
+    position:absolute;left:0;top:0;width:.78em;height:.78em;border-radius:50%;
+    background:rgba(60,124,252,.9);box-shadow:0 0 0 .26em rgba(60,124,252,.16);
+    z-index:16;opacity:0;pointer-events:none;
+  }
+  .ring{
+    position:absolute;left:0;top:0;width:.78em;height:.78em;border-radius:50%;
+    border:.09em solid rgba(60,124,252,.6);z-index:16;opacity:0;pointer-events:none;
+  }
+  .flash{position:absolute;inset:0;background:#fff;z-index:20;opacity:0;pointer-events:none}
+
+  .cap{margin:12px 2px 0;font-size:12.5px;color:var(--ink-2);display:flex;gap:14px;flex-wrap:wrap}
+  .cap span{display:flex;align-items:center;gap:6px}
+  .cap em{width:7px;height:7px;border-radius:50%;display:block;font-style:normal}
+  .cap .a em{background:var(--blue)}
+  .cap .b em{background:var(--ok)}
+</style>
+</head>
+<body>
+<script>if(location.search.indexOf('embed')>-1)document.body.classList.add('embed');</script>
+
+<div class="wrap">
+  <div class="head">
+    <h1>演示 03 · 粉笔试卷排版打印（真题排版 + 三大块全导出）</h1>
+    <p>两件事：<b>排版</b>是原作者「火焰百合」做的，把题库排成真题的样子（宋体、首行缩进、行距、题号悬挂）；<b>自选导出</b>是我的增补——言语／判断／资料各自「全选」，勾几块印几块。这里演示的是三大块全勾、一次导出整份卷子的样子。</p>
+  </div>
+
+  <div class="scene">
+    <div class="stage">
+      <div class="stage-in" id="scene">
+
+        <div class="appbar">
+          <span class="back">‹ 返回</span>
+          <span class="ttl">2024 国考行测（副省级·节选）</span>
+          <span class="sp"></span>
+          <span class="sel" id="selWrap">已选 <b id="selN">0</b> 题</span>
+          <span class="btn" id="btn"><span id="btnText">导出整卷</span></span>
+        </div>
+
+        <div class="main">
+          <div class="list" id="list">
+            <div class="grp" id="grp0">
+              <div class="ghead"><span class="gname">言语理解</span><span class="gcnt">15 题</span><span class="sp"></span>
+                <span class="allbtn" id="all0">全选</span></div>
+              <div class="cells" id="cells0"></div>
+            </div>
+            <div class="grp" id="grp1">
+              <div class="ghead"><span class="gname">判断推理</span><span class="gcnt">15 题</span><span class="sp"></span>
+                <span class="allbtn" id="all1">全选</span></div>
+              <div class="cells" id="cells1"></div>
+            </div>
+            <div class="grp" id="grp2">
+              <div class="ghead"><span class="gname">资料分析</span><span class="gcnt">10 题</span><span class="sp"></span>
+                <span class="allbtn" id="all2">全选</span></div>
+              <div class="cells" id="cells2"></div>
+            </div>
+            <div class="lnote" id="lnote">原作者版：整卷导出<br>不能挑题</div>
+          </div>
+
+          <div class="preview" id="preview">
+            <div class="sheets" id="sheets"></div>
+            <div class="pind" id="pind">第 1 / 10 页</div>
+            <div class="badge" id="badge"><span>10 页 · 40 题</span></div>
+
+            <div class="zpad" id="zpad">
+              <div class="zpage" id="zpage">
+                <div class="zhead" id="zhead">2024 年国家公务员录用考试<br>《行政职业能力测验》（副省级·节选）</div>
+                <div class="zbody" id="zbody"></div>
+                <div class="zf"><span>— 1 —</span></div>
+              </div>
+              <div class="zspec" id="zspec"><span>宋体正文 · 首行缩进 2 字 · 行距 1.5 · 题号悬挂</span></div>
+            </div>
+
+            <div class="spread" id="spread"></div>
+            <div class="scap" id="scap"><span>三部分按序成卷 · 言语 15 + 判断 15 + 资料 10 = 40 题 / 10 页</span></div>
+          </div>
+        </div>
+
+        <div class="chip bad" id="chipRed" style="left:1.15em;bottom:.95em"><span class="tx"><span class="d"></span>原版只有「导出整卷」· 40 题一股脑印</span></div>
+        <div class="chip ok"  id="chipGreen" style="left:1.15em;bottom:.95em"><span class="tx"><span class="d"></span>三大块全勾 · 40 题按部分排成 10 页</span></div>
+
+        <div class="toast" id="toast">
+          <span class="ic">PDF</span>
+          <span><b>行测真题（三大块）.pdf</b><span>A4 · 共 10 页 · 言语/判断/资料</span></span>
+        </div>
+
+        <div class="touch" id="touch"></div>
+        <div class="ring" id="r0"></div>
+        <div class="ring" id="r1"></div>
+        <div class="ring" id="r2"></div>
+        <div class="ring" id="r3"></div>
+        <div class="flash" id="flash"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cap">
+    <span class="a"><em></em>原作者：把题库排成真题——宋体、首行缩进、行距统一、题号悬挂、选项两列</span>
+    <span class="b"><em></em>我的增补：三大块各自「全选」，言语／判断／资料按部分顺序排进同一份卷，勾几块印几块</span>
+  </div>
+</div>
+
+<script>
+(function(){
+  const sceneEl = document.getElementById('scene');
+  const listEl  = document.getElementById('list');
+  const sheetsEl= document.getElementById('sheets');
+  const pind    = document.getElementById('pind');
+  const badge   = document.getElementById('badge');
+  const zpad    = document.getElementById('zpad');
+  const zpage   = document.getElementById('zpage');
+  const zhead   = document.getElementById('zhead');
+  const zbody   = document.getElementById('zbody');
+  const zspec   = document.getElementById('zspec');
+  const spreadEl= document.getElementById('spread');
+  const scap    = document.getElementById('scap');
+  const selWrap = document.getElementById('selWrap');
+  const selN    = document.getElementById('selN');
+  const lnote   = document.getElementById('lnote');
+  const btn     = document.getElementById('btn');
+  const btnText = document.getElementById('btnText');
+  const chipRed = document.getElementById('chipRed');
+  const chipGreen = document.getElementById('chipGreen');
+  const toast   = document.getElementById('toast');
+  const touch   = document.getElementById('touch');
+  const rings   = ['r0','r1','r2','r3'].map(id => document.getElementById(id));
+  const flash   = document.getElementById('flash');
+
+  /* 三大块：言语 1-15 / 判断 16-30 / 资料 31-40 */
+  const GROUPS = [
+    { name:'言语理解', key:'言语', from:1,  to:15, part:'第一部分', pages:[1,3]  },
+    { name:'判断推理', key:'判断', from:16, to:30, part:'第二部分', pages:[4,7]  },
+    { name:'资料分析', key:'资料', from:31, to:40, part:'第三部分', pages:[8,10] }
+  ];
+  const PER_PAGE = 4;
+  const TOTAL_Q  = 40;
+  const PAGES_FULL = Math.ceil(TOTAL_Q / PER_PAGE);   // 10
+
+  const cellEls = [], ckEls = [], grpEls = [], allBtns = [];
+  GROUPS.forEach((g, gi) => {
+    const box = document.getElementById('cells' + gi);
+    grpEls.push(document.getElementById('grp' + gi));
+    allBtns.push(document.getElementById('all' + gi));
+    let html = '';
+    for (let no = g.from; no <= g.to; no++){
+      html += `<div class="cell"><span class="ck"></span><span class="n">${no}</span></div>`;
+    }
+    box.innerHTML = html;
+    [...box.querySelectorAll('.cell')].forEach((c, k) => {
+      cellEls[g.from - 1 + k] = c;
+      ckEls[g.from - 1 + k] = c.querySelector('.ck');
+    });
+  });
+
+  /* 缩略页 */
+  const BARW = [96,72,88,60,92,76,100,54,84];
+  sheetsEl.innerHTML = Array.from({length: PAGES_FULL}, (_, i) =>
+    `<div class="thumb">` +
+      Array.from({length: 9}, (_, k) => `<i style="width:${BARW[(k + i) % 9]}%"></i>`).join('') +
+      `<div class="pf"><span>${i+1}</span></div></div>`
+  ).join('');
+  const thumbs = [...sheetsEl.querySelectorAll('.thumb')];
+
+  /* 成卷三联：三大块各一张小页 */
+  const QW = [92,84,96,76];
+  spreadEl.innerHTML = GROUPS.map((g, i) => {
+    const cnt = g.to - g.from + 1;
+    let bars = '';
+    for (let k = 0; k < 4; k++){
+      bars += `<i class="q" style="width:${QW[k]}%"></i>` +
+        `<div class="og">` +
+          `<i style="width:46%"></i><i style="width:40%"></i>` +
+          `<i style="width:43%"></i><i style="width:37%"></i>` +
+        `</div>`;
+    }
+    return `<div class="sp" id="sp${i}">` +
+      `<div class="pt"><span class="k">${g.part}</span><span class="nm">${g.name}</span>` +
+        `<span class="cn">${cnt} 题</span></div>` +
+      `<div class="pl">${bars}</div>` +
+      `<div class="pn">P.${g.pages[0]}–${g.pages[1]}</div></div>`;
+  }).join('');
+  const spEls = GROUPS.map((_, i) => document.getElementById('sp' + i));
+
+  /* 真卷第 1 页内容 */
+  const PAGE_Q = [
+    { no:'1', stem:'「乡村振兴，既要塑形，也要铸魂。」这句话意在强调：',
+      opts:['物质与精神并重','文化是前提','保护传统村落','提升农民素质'] },
+    { no:'2', stem:'客观上讲，任何一项改革都会触动既有的利益格局，因此推进过程中出现不同的声音是必然的。真正重要的是，决策者在嘈杂的议论中把握方向。',
+      opts:['改革必然伴随争议','决策者应广泛听取意见','改革应当稳步推进','舆论环境需要引导'] },
+    { no:'3', stem:'甲、乙两地相距 360 千米，客车与货车同时从两地相向而行，客车速度是货车的 1.5 倍，2 小时后两车相遇。货车的速度是：',
+      opts:['60 千米/时','72 千米/时','80 千米/时','90 千米/时'] },
+    { no:'4', stem:'我国现行宪法规定，中华人民共和国的根本制度是：',
+      opts:['人民代表大会制度','社会主义制度','民族区域自治制度','基层群众自治制度'] }
+  ];
+  zbody.innerHTML = PAGE_Q.map(d =>
+    `<div class="zq"><span class="no">${d.no}．</span>${d.stem}` +
+    `<div class="zopts">${d.opts.map((o,j)=>`<span>${'ABCD'[j]}．${o}</span>`).join('')}</div></div>`
+  ).join('');
+
+  /* 标注框：标题 / 题号 / 选项 */
+  const annos = [];
+  function buildAnnos(){
+    annos.forEach(a => a.remove()); annos.length = 0;
+    const pr = zpage.getBoundingClientRect();
+    const targets = [zhead, zbody.querySelector('.zq .no'), zbody.querySelector('.zq .zopts')];
+    targets.forEach(t => {
+      if (!t) return;
+      const r = t.getBoundingClientRect();
+      const d = document.createElement('div');
+      d.className = 'anno';
+      d.style.left   = (r.left - pr.left - 5) + 'px';
+      d.style.top    = (r.top  - pr.top  - 5) + 'px';
+      d.style.width  = (r.width + 10) + 'px';
+      d.style.height = (r.height + 10) + 'px';
+      zpage.appendChild(d);
+      annos.push(d);
+    });
+  }
+
+  /* 时间轴 */
+  const CYCLE   = 13600;
+  const SWITCH  = 5250;
+  const T_EXP_A = 1350;
+  const PAGE_IN = 1600;
+  const ANNO_T  = [2500, 2860, 3220];
+  const SPEC_T  = 3600;
+  const PAGE_OUT= 4600;
+
+  const ARM     = 5780;
+  const T_ALL   = [6600, 7750, 8900];   // 言语 / 判断 / 资料 三块依次全选
+  const T_EXP_B = 10300;
+  const SPREAD_IN = 10420;
+  const SPREAD_AT = [SPREAD_IN + 470, SPREAD_IN + 730, SPREAD_IN + 990];
+  const SPREAD_OUT= 12100;
+  const T_TOAST = 12500;
+  const OUT_A   = 13150;
+
+  function em(){ return parseFloat(getComputedStyle(sceneEl).fontSize); }
+  function clamp01(x){ return x < 0 ? 0 : x > 1 ? 1 : x; }
+  function ease(x){ return x < .5 ? 2*x*x : 1 - Math.pow(-2*x + 2, 2)/2; }
+  function seg(t,a,b){ return clamp01((t - a) / (b - a)); }
+
+  const GROUP_CNT = GROUPS.map(g => g.to - g.from + 1);   // 15, 15, 10
+
+  function onCount(t){
+    let n = 0;
+    GROUPS.forEach((g, gi) => {
+      for (let i = 0; i < GROUP_CNT[gi]; i++) if (t >= T_ALL[gi] + i * 18) n++;
+    });
+    return n;
+  }
+  const pagesAt = n => n === 0 ? PAGES_FULL : Math.ceil(n / PER_PAGE);
+
+  function center(el){
+    const e = em();
+    const s = sceneEl.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    return [ (r.left + r.width/2 - s.left) / e, (r.top + r.height/2 - s.top) / e ];
+  }
+  function ringAt(el, c, k){
+    el.style.opacity = (1 - k) * .85;
+    el.style.transform = `translate(${c[0] - .39}em, ${c[1] - .39}em) scale(${1 + k * 2.2})`;
+  }
+
+  function render(t){
+    const before = t < SWITCH || t >= OUT_A;
+    const on = before ? 0 : onCount(t);
+    const pages = pagesAt(on);
+
+    /* ---------- 左侧清单 ---------- */
+    for (let i = 0; i < TOTAL_Q; i++){
+      const no = i + 1;
+      const arm = before ? 0 : ease(seg(t, ARM + i * 5, ARM + 130 + i * 5));
+      ckEls[i].style.opacity = arm;
+      let lit = false;
+      if (!before){
+        GROUPS.forEach((g, gi) => {
+          if (no >= g.from && no <= g.to) lit = t >= T_ALL[gi] + (no - g.from) * 18;
+        });
+      }
+      cellEls[i].classList.toggle('on', lit);
+    }
+    GROUPS.forEach((g, gi) => {
+      const b = allBtns[gi];
+      b.style.opacity = before ? 0 : ease(seg(t, ARM + 200, ARM + 420));
+      const ao = !before && t >= T_ALL[gi] + GROUP_CNT[gi] * 18;
+      b.classList.toggle('on', ao);
+      b.textContent = ao ? '已全选' : '全选';
+      grpEls[gi].classList.toggle('done', ao);
+    });
+
+    lnote.style.opacity = before ? (1 - ease(seg(t, 450, 700))) : (1 - ease(seg(t, ARM + 600, ARM + 900)));
+    if (!before) lnote.innerHTML = '三块各自「全选」<br>勾几块印几块';
+    listEl.style.opacity = before ? 1 - .62 * ease(seg(t, PAGE_IN, PAGE_IN + 500)) : 1;
+
+    /* ---------- 缩略页 ---------- */
+    const show = before ? PAGES_FULL : pages;
+    for (let i = 0; i < PAGES_FULL; i++) thumbs[i].style.display = i < show ? 'block' : 'none';
+
+    const spreadIn = before ? 0 : ease(seg(t, SPREAD_IN, SPREAD_IN + 420));
+    const sheetsOp = (1 - (before ? ease(seg(t, PAGE_IN + 250, PAGE_IN + 700)) : 0)) * (1 - spreadIn);
+    sheetsEl.style.opacity = sheetsOp;
+    pind.style.opacity = sheetsOp;
+
+    let scroll = 0;
+    if (before){
+      const e = em();
+      const TH = (thumbs[0].offsetHeight + .5 * e) / e;
+      scroll = -TH * 5 * ease(seg(t, 1750, 3300));
+      pind.textContent = `第 ${Math.min(PAGES_FULL, Math.round(-scroll / TH) + 1)} / ${PAGES_FULL} 页`;
+    } else {
+      pind.textContent = `第 1 / ${pages} 页`;
+    }
+    sheetsEl.style.transform = `translateY(${scroll}em)`;
+
+    /* ---------- 顶栏 / 角标 ---------- */
+    selWrap.style.opacity = before ? 0 : (on > 0 ? 1 : 0);
+    selN.textContent = on;
+    const done = !before && t >= T_EXP_B + 300;
+    btnText.textContent = done ? '已导出' : (before ? '导出整卷' : '导出所选');
+    btn.classList.toggle('done', done);
+
+    badge.firstElementChild.textContent =
+      before ? `${PAGES_FULL} 页 · 40 题` : `${pages} 页 · ${on === 0 ? 40 : on} 题`;
+    let pulse = 0;
+    GROUPS.forEach((g, gi) => {
+      const tt = T_ALL[gi] + GROUP_CNT[gi] * 18;
+      const k = seg(t, tt, tt + 380);
+      if (k > 0 && k < 1) pulse = Math.max(pulse, 1 - k);
+    });
+    badge.style.transform = `scale(${1 + pulse * .16})`;
+
+    /* ---------- 真卷进出（原作者版） ---------- */
+    const pin  = before ? ease(seg(t, PAGE_IN, PAGE_IN + 650)) : 0;
+    const pout = before ? ease(seg(t, PAGE_OUT, PAGE_OUT + 420)) : 0;
+    const op = pin * (1 - pout);
+    zpad.style.opacity = op;
+    zpad.style.transform = `scale(${.955 + pin * .045})`;
+
+    /* ---------- 标注 ---------- */
+    annos.forEach((a, i) => {
+      const k = before ? ease(seg(t, ANNO_T[i], ANNO_T[i] + 320)) * (1 - pout) : 0;
+      a.style.opacity = k;
+      a.style.transform = `scale(${1.04 - k * .04})`;
+    });
+    const sk = before ? ease(seg(t, SPEC_T, SPEC_T + 420)) * (1 - pout) : 0;
+    zspec.style.opacity = sk;
+    zspec.style.transform = `translateY(${(1 - sk) * .5}em)`;
+
+    /* ---------- 成卷三联（三大块全导出） ---------- */
+    const spreadOut = before ? 0 : ease(seg(t, SPREAD_OUT, SPREAD_OUT + 340));
+    spEls.forEach((el, i) => {
+      const k = before ? 0 : ease(seg(t, SPREAD_AT[i], SPREAD_AT[i] + 340));
+      el.style.opacity = k * (1 - spreadOut);
+      el.style.transform = `translateY(${(1 - k) * .9 - spreadOut * .35}em) scale(${.97 + k * .03})`;
+    });
+    const scapK = before ? 0 : ease(seg(t, SPREAD_AT[2] + 200, SPREAD_AT[2] + 560)) * (1 - spreadOut);
+    scap.style.opacity = scapK;
+    scap.style.transform = `translateY(${(1 - scapK) * .4}em)`;
+
+    /* ---------- 提示 ---------- */
+    chipRed.style.opacity   = before ? ease(seg(t, 3550, 3900)) * (1 - pout) : 0;
+    chipGreen.style.opacity = (!before) ? ease(seg(t, T_TOAST + 320, T_TOAST + 720)) * (1 - ease(seg(t, OUT_A, OUT_A + 260))) : 0;
+
+    /* ---------- 结果卡 ---------- */
+    const tin = (!before) ? ease(seg(t, T_TOAST, T_TOAST + 400)) * (1 - ease(seg(t, OUT_A, OUT_A + 240))) : 0;
+    toast.style.opacity = tin;
+    toast.style.transform = `translateX(${(1 - tin) * 1.1}em)`;
+
+    /* ---------- 触点 ---------- */
+    let dot = null;
+    if (before){
+      if (t >= 380 && t <= 1500){
+        const b = center(btn);
+        const k = ease(seg(t, 380, 1120));
+        dot = [ b[0] + (1 - k) * 3.4, b[1] + (1 - k) * 2.1 ];
+      }
+    } else {
+      /* 三块依次点击：言语 → 判断 → 资料 */
+      const TRIP = [T_ALL[0] - 300, T_ALL[1] - 300, T_ALL[2] - 300];
+      for (let gi = 0; gi < 3; gi++){
+        if (t >= TRIP[gi] - 40 && t <= T_ALL[gi] + 60){
+          const c = center(allBtns[gi]);
+          if (gi === 0){
+            const k = ease(seg(t, TRIP[0] - 40, TRIP[0] + 200));
+            dot = [ c[0] + (1 - k) * 1.4, c[1] + (1 - k) * 1.1 ];
+          } else {
+            const a = center(allBtns[gi - 1]);
+            const k = ease(seg(t, TRIP[gi] - 40, TRIP[gi] + 200));
+            dot = [ a[0] + (c[0] - a[0]) * k, a[1] + (c[1] - a[1]) * k ];
+          }
+          break;
+        }
+      }
+      if (!dot && t >= 9750 && t <= T_EXP_B + 300){
+        const c = center(allBtns[2]), b = center(btn);
+        const k = ease(seg(t, 9780, 10180));
+        dot = [ c[0] + (b[0] - c[0]) * k, c[1] + (b[1] - c[1]) * k ];
+      }
+    }
+    touch.style.opacity = dot ? .95 : 0;
+    if (dot) touch.style.transform = `translate(${dot[0] - .39}em, ${dot[1] - .39}em)`;
+
+    /* ---------- 涟漪 ---------- */
+    for (let r = 0; r < rings.length; r++) rings[r].style.opacity = 0;
+    if (before){
+      const k = seg(t, T_EXP_A, T_EXP_A + 420);
+      if (k > 0 && k < 1) ringAt(rings[0], center(btn), k);
+    } else {
+      for (let gi = 0; gi < 3; gi++){
+        const k = seg(t, T_ALL[gi], T_ALL[gi] + 400);
+        if (k > 0 && k < 1) ringAt(rings[gi], center(allBtns[gi]), k);
+      }
+      const kx = seg(t, T_EXP_B, T_EXP_B + 400);
+      if (kx > 0 && kx < 1) ringAt(rings[3], center(btn), kx);
+    }
+
+    /* ---------- 转场 ---------- */
+    let a = 0;
+    if (t < 300) a = 1 - seg(t, 0, 300);
+    else if (t >= 5040 && t < 5240) a = seg(t, 5040, 5240);
+    else if (t >= 5240 && t < 5440) a = 1;
+    else if (t >= 5440 && t < 5680) a = 1 - seg(t, 5440, 5680);
+    else if (t >= OUT_A) a = seg(t, OUT_A, OUT_A + 300);
+    flash.style.opacity = a;
+  }
+
+  let start = performance.now(), paused = false;
+  function loop(now){
+    if (!paused) render((now - start) % CYCLE);
+    requestAnimationFrame(loop);
+  }
+  function boot(){
+    buildAnnos();
+    render(0);
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce){ render(3000); paused = true; return; }
+    requestAnimationFrame(loop);
+  }
+  window.__setT = function(t){ paused = true; render(t); };
+  window.__play = function(){ paused = false; start = performance.now(); };
+  window.addEventListener('resize', () => { buildAnnos(); render(0); });
+
+  if (document.readyState === 'complete') boot();
+  else window.addEventListener('load', boot);
+})();
+</script>
+</body>
+</html>
