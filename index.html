@@ -251,6 +251,165 @@
 
   .card-foot a:hover { background: var(--accent); color: #fff; }
 
+  /* ---------- 更新记录 ---------- */
+  .up-wrap { display: flex; flex-direction: column; gap: 12px; }
+
+  .up-hero {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--radius-lg);
+    padding: 20px 22px 18px;
+    background: linear-gradient(115deg, #ffffff 0%, #f1f7ff 100%);
+    border: 1px solid #dde8fb;
+    box-shadow: 0 1px 2px rgba(23, 35, 60, 0.04), 0 14px 34px -22px rgba(23, 35, 60, 0.3);
+  }
+
+  .up-hero::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: linear-gradient(180deg, var(--accent), #6f9af5);
+  }
+
+  .up-h-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+    margin-bottom: 11px;
+  }
+
+  .up-h-head b { font-size: 16.5px; font-weight: 700; letter-spacing: -0.01em; }
+
+  .up-h-head .ico { width: 34px; height: 34px; font-size: 15px; border-radius: 11px; }
+
+  .new-badge {
+    font-size: 10.5px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--accent);
+    border-radius: 5px;
+    padding: 1px 6px;
+    letter-spacing: 0.02em;
+  }
+
+  .verbox {
+    position: relative;
+    width: 64px; height: 20px;
+    border-radius: 6px;
+    background: var(--accent-soft);
+    overflow: hidden;
+  }
+
+  .verbox span {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .up-date {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .up-demo {
+    aspect-ratio: 16 / 10;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #101418;
+    margin-bottom: 13px;
+    box-shadow: inset 0 0 0 1px rgba(23, 35, 60, 0.06);
+  }
+
+  .up-demo iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+  .up-items { list-style: none; margin: 0; padding: 0; }
+
+  .up-items li {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--ink-2);
+    line-height: 1.62;
+    padding: 1.5px 0;
+    will-change: opacity, transform;
+  }
+
+  .tick {
+    flex: 0 0 auto;
+    width: 15px; height: 15px;
+    margin-top: 4px;
+    border-radius: 50%;
+    background: #e4ecfa;
+    display: grid;
+    place-items: center;
+  }
+
+  .tick svg {
+    width: 9px; height: 9px;
+    fill: none;
+    stroke: #fff;
+    stroke-width: 2.1;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .up-list {
+    background: var(--surface);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  .up-row {
+    display: grid;
+    grid-template-columns: 40px auto 1fr auto;
+    column-gap: 11px;
+    align-items: baseline;
+    padding: 6.5px 15px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .up-row:last-child { border-bottom: 0; }
+
+  .up-row .ud { font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .up-row .un { font-size: 13px; font-weight: 600; white-space: nowrap; }
+
+  .up-row .us {
+    font-size: 12.5px;
+    color: var(--ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .up-row .uv {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-radius: 5px;
+    padding: 0 5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 640px) {
+    .up-hero { padding: 16px 16px 14px; }
+    .up-h-head b { font-size: 15px; }
+    .up-h-head .up-date { display: none; }
+    .up-row { grid-template-columns: 36px auto auto; column-gap: 9px; padding: 6px 12px; }
+    .up-row .us { display: none; }
+  }
+
   /* ---------- demos ---------- */
   .demo-grid { display: grid; gap: 16px; }
 
@@ -540,6 +699,29 @@
     </div>
   </header>
 
+  <section id="updates">
+    <div class="sec-head">
+      <h2>最新更新内容 <em>9 个脚本，持续维护中</em></h2>
+    </div>
+    <div class="up-wrap">
+      <div class="up-hero" id="upHero">
+        <div class="up-h-head">
+          <span class="ico" id="upIco">草</span>
+          <b id="upName">粉笔自动全开草稿</b>
+          <span class="new-badge">最新</span>
+          <span class="verbox">
+            <span class="v-old">v2.8.15</span>
+            <span class="v-new">v2.9.23</span>
+          </span>
+          <span class="up-date" id="upDate">2026 年 11 月 1 日</span>
+        </div>
+        <div class="up-demo"><iframe data-src="demo/09-draftpad.html?embed=1" title="最新功能演示" scrolling="no"></iframe></div>
+        <ul class="up-items" id="upItems"></ul>
+      </div>
+      <div class="up-list" id="upList"></div>
+    </div>
+  </section>
+
   <section>
     <div class="sec-head">
       <h2>工具集 <em>按安装量排序</em></h2>
@@ -736,6 +918,7 @@
   }, { rootMargin: "700px 0px" });
 
   demoGrid.querySelectorAll(".demo-card").forEach((c) => demoIO.observe(c));
+  document.querySelectorAll(".up-hero").forEach((c) => demoIO.observe(c));
 
   /* 卡片上的「演示」跳到对应那段 */
   document.addEventListener("click", (e) => {
@@ -784,6 +967,142 @@
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") qrModal.hidden = true;
   });
+  /* ---------- 更新记录 ---------- */
+  /* 最新一条在最前面；每次发版往数组最前面加一条就行 */
+  const UPDATES = [
+    {
+      date: "11-01", full: "2026 年 11 月 1 日", name: "粉笔自动全开草稿", glyph: "草",
+      cat: "刷题辅助", prev: "2.8.15", ver: "2.9.23",
+      sum: "APP 式分栏草稿 + 每题一张草稿纸，一次大版本",
+      note: [
+        "本次更新给资料分析每道小题多加了一张草稿纸",
+        "书写更稳：撤销、清空、断触后多色笔迹原样恢复，不再塌色或断线",
+        "新增 APP 式分栏草稿：资料分析左右两栏独立书写、独立滚动，滚动条可拖",
+        "新增每题一张的悬浮草稿纸：三档大小、透明度可调；默认只认笔，手掌搭上去也不会误写"
+      ]
+    },
+    {
+      date: "11-01", full: "2026 年 11 月 1 日", name: "粉笔错题本", glyph: "错",
+      cat: "资料整理", prev: "1.0.15", ver: "1.0.16",
+      sum: "WebDAV 加了冲突重试和连接诊断",
+      note: [
+        "WebDAV 同步遇到冲突会自动重试，网络抖动不再直接失败",
+        "新增连接诊断面板，能看出是卡在账号还是网盘上",
+        "按错误原因分组最多支持四级，层级更细"
+      ]
+    },
+    {
+      date: "11-01", full: "2026 年 11 月 1 日", name: "悬浮查词", glyph: "词",
+      cat: "资料整理", prev: "3.18.2", ver: "3.18.3",
+      sum: "悬停延迟优化，词库扩充"
+    },
+    {
+      date: "10-28", full: "2026 年 10 月 28 日", name: "粉笔一页成卷", glyph: "卷",
+      cat: "排版打印", prev: "1.1.3", ver: "1.1.4",
+      sum: "选项 1/2/4 列可手动切换"
+    },
+    {
+      date: "10-25", full: "2026 年 10 月 25 日", name: "粉笔评论查看器", glyph: "评",
+      cat: "刷题辅助", prev: "2.9.0", ver: "2.9.1",
+      sum: "收藏的评论改成完整卡片"
+    },
+    {
+      date: "10-20", full: "2026 年 10 月 20 日", name: "粉笔自由折叠", glyph: "折",
+      cat: "刷题辅助", prev: "3.0.2", ver: "3.0.3",
+      sum: "长列表里切题不再跳位"
+    },
+    {
+      date: "10-15", full: "2026 年 10 月 15 日", name: "粉笔试卷排版打印", glyph: "印",
+      cat: "排版打印", prev: "70.76", ver: "70.77",
+      sum: "题目可跨页，长题干不被截断"
+    },
+    {
+      date: "10-10", full: "2026 年 10 月 10 日", name: "试卷跳转面板", glyph: "跳",
+      cat: "效率增强", prev: "1.0.4", ver: "1.0.5",
+      sum: "面板记住上次选择"
+    }
+  ];
+
+  const upHero = document.getElementById("upHero");
+  const upItemsEl = document.getElementById("upItems");
+  const upListEl = document.getElementById("upList");
+  const LATEST = UPDATES[0];
+
+  (function buildUpdates() {
+    const ico = document.getElementById("upIco");
+    const [bgV, fgV] = CAT_COLOR[LATEST.cat];
+    ico.textContent = LATEST.glyph;
+    ico.style.background = "var(" + bgV + ")";
+    ico.style.color = "var(" + fgV + ")";
+
+    document.getElementById("upName").textContent = LATEST.name;
+    document.getElementById("upDate").textContent = LATEST.full;
+    upHero.querySelector(".v-old").textContent = "v" + LATEST.prev;
+    upHero.querySelector(".v-new").textContent = "v" + LATEST.ver;
+
+    upItemsEl.innerHTML = LATEST.note.map((t) =>
+      '<li><span class="tick"><svg viewBox="0 0 12 12" aria-hidden="true">' +
+      '<path d="M2.6 6.5 4.9 8.8 9.4 3.4"/></svg></span><span>' + t + "</span></li>"
+    ).join("");
+
+    upListEl.innerHTML = UPDATES.slice(1).map((u) =>
+      '<div class="up-row">' +
+      '<span class="ud">' + u.date.replace("-", "/") + "</span>" +
+      '<span class="un">' + u.name + "</span>" +
+      '<span class="us">' + u.sum + "</span>" +
+      '<span class="uv">v' + u.ver + "</span>" +
+      "</div>"
+    ).join("");
+  })();
+
+  /* 最新那条的循环动画：版本号滚动 → 改动逐条浮现打勾 → 停留 → 复位 */
+  (function updateAnim() {
+    const oldEl = upHero.querySelector(".v-old");
+    const newEl = upHero.querySelector(".v-new");
+    const lis = [...upItemsEl.children];
+    const ticks = lis.map((li) => li.querySelector(".tick"));
+    const paths = lis.map((li) => li.querySelector("path"));
+    const lens = paths.map((p) => p.getTotalLength());
+    paths.forEach((p, i) => {
+      p.style.strokeDasharray = lens[i];
+      p.style.strokeDashoffset = lens[i];
+    });
+
+    const CYCLE = 6000, T_VER = 350, T_VER_D = 550,
+          T_ITEM = 820, GAP = 440, T_IN = 400, T_FADE = 5400;
+    const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+    const ease = (v) => 1 - Math.pow(1 - v, 3);
+
+    function render(t) {
+      const outP = t > T_FADE ? clamp01((t - T_FADE) / (CYCLE - T_FADE)) : 0;
+      const baseOp = 1 - outP;
+
+      const rollback = outP > 0.5;
+      const vp = ease(clamp01((t - T_VER) / T_VER_D));
+      oldEl.style.opacity = rollback ? 1 : 1 - vp;
+      oldEl.style.transform = "translateY(" + (rollback ? 0 : -7 * vp) + "px)";
+      newEl.style.opacity = rollback ? 0 : vp;
+      newEl.style.transform = "translateY(" + (rollback ? 7 * (1 - outP) : 7 * (1 - vp)) + "px)";
+
+      lis.forEach((li, i) => {
+        const p = clamp01((t - (T_ITEM + i * GAP)) / T_IN);
+        const app = Math.min(1, p * 1.9);
+        li.style.opacity = app * baseOp;
+        li.style.transform = "translateY(" + (1 - app) * 7 + "px)";
+
+        const tp = clamp01((p - 0.32) / 0.68);
+        ticks[i].style.background = tp <= 0
+          ? "#e4ecfa"
+          : "rgb(" + ((232 + (47 - 232) * tp) | 0) + "," +
+                    ((238 + (107 - 238) * tp) | 0) + "," +
+                    ((250 + (220 - 250) * tp) | 0) + ")";
+        paths[i].style.strokeDashoffset = lens[i] * (1 - tp);
+      });
+    }
+
+    /* 动画暂停中 —— 先静态展示完整状态，时间轴代码保留在这里备用 */
+    render(T_FADE - 1);
+  })();
 </script>
 
 </body>

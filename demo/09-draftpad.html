@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>自动全开草稿 · 资料分析草稿纸</title>
+<style>
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: #101418;
+    color: #e8edf4;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 960px; margin: 0 auto; padding: 26px 16px 40px; }
+
+  .head { margin-bottom: 14px; }
+  .head h1 { font-size: 17px; font-weight: 700; margin: 0 0 4px; }
+  .head p { font-size: 12.5px; color: #8d99ab; margin: 0; }
+
+  .scene {
+    aspect-ratio: 16 / 10;
+    background: #eef1f5;
+    border-radius: 14px;
+    overflow: hidden;
+    position: relative;
+    container-type: size;
+    box-shadow: 0 20px 60px -30px rgba(0,0,0,.8);
+  }
+
+  .stage { position: absolute; inset: 0; }
+  .stage-in { position: absolute; inset: 0; font-size: 3.05cqw; }
+
+  @property --u { syntax: "<length>"; inherits: true; initial-value: 0px; }
+  .stage { --u: 1cqw; }
+
+  /* ---------- 粉笔顶栏 ---------- */
+  .appbar {
+    position: absolute; left: 0; right: 0; top: 0; height: calc(4.6*var(--u));
+    background: #fff; display: flex; align-items: center; gap: calc(1.2*var(--u));
+    padding: 0 calc(2*var(--u)); font-size: calc(1.35*var(--u)); color: #3c4453;
+    box-shadow: 0 1px 0 #e6e9ee; z-index: 2;
+  }
+  .appbar .back { color: #7a8494; }
+  .appbar .ttl { font-weight: 600; }
+  .appbar .sp { flex: 1; }
+  .appbar .clock { color: #9aa3b2; font-variant-numeric: tabular-nums; }
+  .appbar .submit {
+    background: #2f6bdc; color: #fff; border-radius: 999px;
+    padding: calc(.3*var(--u)) calc(1.4*var(--u)); font-size: calc(1.15*var(--u));
+  }
+
+  /* ---------- 材料卡 / 题目区 ---------- */
+  .mat, .qzone { position: absolute; transition: none; }
+
+  .mat {
+    background: #fff; border-radius: calc(1*var(--u));
+    box-shadow: 0 1px 4px rgba(30,40,60,.08);
+    padding: calc(1.8*var(--u)) calc(2.2*var(--u));
+    overflow: hidden;
+  }
+  .mat p {
+    margin: 0 0 calc(1.2*var(--u));
+    font-size: calc(1.32*var(--u)); line-height: 1.72; color: #2c3442;
+    text-indent: 2em;
+  }
+  .mat .hl { color: #2c3442; }
+  .tbl-cap { text-align: center; font-size: calc(1.05*var(--u)); color: #8a93a3; margin-bottom: calc(.6*var(--u)); }
+  .mat table { width: 88%; margin: 0 auto; border-collapse: collapse; font-size: calc(1.08*var(--u)); color: #3c4453; }
+  .mat th, .mat td { border: 1px solid #d9dee7; padding: calc(.28*var(--u)) calc(.5*var(--u)); text-align: center; }
+  .mat th { background: #f4f6f9; font-weight: 600; }
+  .mat td:first-child { text-align: left; }
+
+  .qzone { display: flex; flex-direction: column; gap: calc(1.2*var(--u)); overflow: hidden; }
+  .q {
+    background: #fff; border-radius: calc(1*var(--u));
+    box-shadow: 0 1px 4px rgba(30,40,60,.08);
+    padding: calc(1.5*var(--u)) calc(2*var(--u));
+    flex: 0 0 auto;
+  }
+  .qhead { display: flex; align-items: center; gap: calc(.8*var(--u)); margin-bottom: calc(.7*var(--u)); }
+  .qhead .no { font-weight: 700; font-size: calc(1.4*var(--u)); color: #222a38; }
+  .qhead .single { font-size: calc(.95*var(--u)); color: #e6913c; background: #fdf3e7; border-radius: calc(.4*var(--u)); padding: 0 calc(.7*var(--u)); }
+  .q .stem { font-size: calc(1.32*var(--u)); line-height: 1.66; color: #2c3442; margin-bottom: calc(1*var(--u)); }
+  .q .opts { display: grid; grid-template-columns: 1fr 1fr; gap: calc(.7*var(--u)) calc(1.4*var(--u)); }
+  .q .opts span { font-size: calc(1.25*var(--u)); color: #3c4453; display: flex; align-items: center; gap: calc(.8*var(--u)); }
+  .q .opts i {
+    font-style: normal; width: calc(1.9*var(--u)); height: calc(1.9*var(--u));
+    border: 1px solid #cdd4df; border-radius: 50%;
+    display: grid; place-items: center; font-size: calc(.95*var(--u)); color: #8a93a3;
+  }
+
+  /* ---------- 笔按钮 ---------- */
+  .penbtn {
+    position: absolute; right: 6%; bottom: 14%;
+    width: calc(4.6*var(--u)); height: calc(4.6*var(--u));
+    background: #2f6bdc; border-radius: 50%;
+    display: grid; place-items: center;
+    color: #fff; font-size: calc(2.1*var(--u));
+    box-shadow: 0 4px 14px -4px rgba(47,107,220,.7);
+    z-index: 3;
+  }
+
+  /* ---------- 脚本顶栏 ---------- */
+  .topbar {
+    position: absolute; left: 0; right: 0; top: 0; height: calc(4.6*var(--u));
+    background: #fff; z-index: 5;
+    display: flex; align-items: center; gap: calc(.9*var(--u));
+    padding: 0 calc(1.4*var(--u));
+    box-shadow: 0 1px 6px rgba(30,40,60,.14);
+    font-size: calc(1.15*var(--u)); color: #4a5468;
+    will-change: transform, opacity;
+  }
+  .topbar .tb-x { font-size: calc(1.7*var(--u)); color: #9aa3b2; margin-right: calc(.3*var(--u)); }
+  .tb-no {
+    background: #f1f4f9; border-radius: calc(.55*var(--u));
+    padding: calc(.25*var(--u)) calc(.75*var(--u));
+    font-variant-numeric: tabular-nums; color: #7a8494;
+  }
+  .tb-no.cur { background: #2f6bdc; color: #fff; }
+  .tb-sep { width: 1px; height: calc(1.9*var(--u)); background: #e6e9ee; margin: 0 calc(.4*var(--u)); }
+  .dot { width: calc(1.5*var(--u)); height: calc(1.5*var(--u)); border-radius: 50%; }
+  .dot.blk { background: #23272f; }
+  .dot.blu { background: #3f7df0; box-shadow: 0 0 0 calc(.28*var(--u)) #d8e5fd; }
+  .dot.red { background: #e5484d; }
+  .tb-t { color: #7a8494; font-variant-numeric: tabular-nums; }
+  .tb-lock { filter: grayscale(1) opacity(.55); font-size: calc(1.35*var(--u)); }
+  .tb-lock.on { filter: none; text-shadow: 0 0 calc(.9*var(--u)) rgba(255,150,40,.8); }
+  .topbar .sp { flex: 1; }
+  .tb-ico { color: #7a8494; font-size: calc(1.25*var(--u)); }
+
+  /* ---------- 悬浮草稿纸 ---------- */
+  .paper {
+    position: absolute; left: 56.5%; top: 13.5%; width: 42%; height: 79%;
+    background: rgba(255,255,255,.94);
+    border-radius: calc(1*var(--u));
+    box-shadow: 0 8px 30px -10px rgba(30,40,60,.35);
+    z-index: 4;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    will-change: transform, opacity;
+  }
+  .p-head {
+    flex: 0 0 auto; height: calc(3.4*var(--u));
+    display: flex; align-items: center; gap: calc(.6*var(--u));
+    padding: 0 calc(1*var(--u));
+    background: rgba(244,246,250,.9);
+    border-bottom: 1px solid #e6e9ee;
+    font-size: calc(1.05*var(--u)); color: #7a8494;
+  }
+  .p-head .ph-no { font-weight: 700; color: #2f6bdc; font-variant-numeric: tabular-nums; }
+  .p-head b { font-weight: 500; background: #fff; border: 1px solid #d9dee7; border-radius: calc(.4*var(--u)); padding: 0 calc(.5*var(--u)); font-size: calc(.95*var(--u)); }
+  .p-head b.cur { background: #e8f0fe; border-color: #2f6bdc; color: #2f6bdc; }
+  .p-head .ph-opa { font-size: calc(.9*var(--u)); }
+  .p-head .sp { flex: 1; }
+  .p-head .ph-x { font-size: calc(1.4*var(--u)); color: #9aa3b2; }
+
+  /* ---------- SVG 层 ---------- */
+  svg.layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #svgMain { z-index: 3; }
+  #svgTrail { z-index: 6; }
+  .paper svg { position: absolute; left: 0; top: calc(3.4*var(--u)); width: 100%; height: calc(100% - 3.4*var(--u)); }
+
+  /* ---------- 手掌 / 气泡 / 标签 ---------- */
+  .palm {
+    position: absolute; left: 72%; top: 30%;
+    font-size: calc(8.5*var(--u)); line-height: 1;
+    z-index: 6; filter: drop-shadow(0 6px 14px rgba(30,40,60,.3));
+    will-change: transform, opacity;
+  }
+  .bubble {
+    position: absolute; left: 58%; top: 58%;
+    background: #2f6bdc; color: #fff;
+    font-size: calc(1.35*var(--u)); font-weight: 600;
+    border-radius: calc(.8*var(--u)); padding: calc(.6*var(--u)) calc(1.2*var(--u));
+    z-index: 7; white-space: nowrap;
+    box-shadow: 0 6px 18px -8px rgba(47,107,220,.8);
+    will-change: transform, opacity;
+  }
+  .bubble::before {
+    content: ""; position: absolute; top: calc(-.55*var(--u)); left: 38%;
+    border: calc(.55*var(--u)) solid transparent; border-bottom-color: #2f6bdc; border-top: 0;
+  }
+
+  .tag {
+    position: absolute; left: 2%; top: 6.5%;
+    background: rgba(23,35,60,.78); color: #fff;
+    font-size: calc(1.3*var(--u)); font-weight: 600;
+    border-radius: 999px; padding: calc(.45*var(--u)) calc(1.4*var(--u));
+    z-index: 7; backdrop-filter: blur(4px);
+    will-change: transform, opacity;
+  }
+
+  /* ---------- 光标 ---------- */
+  .cursor { position: absolute; z-index: 9; width: calc(2*var(--u)); will-change: transform; }
+  .ring {
+    position: absolute; z-index: 8;
+    width: calc(4.4*var(--u)); height: calc(4.4*var(--u)); border-radius: 50%;
+    border: calc(.35*var(--u)) solid rgba(47,107,220,.75);
+    will-change: transform, opacity;
+  }
+
+  /* ---------- 尾行 ---------- */
+  .cap { display: flex; gap: calc(2*var(--u)); justify-content: center; margin-top: 14px; font-size: 13px; color: #8d99ab; flex-wrap: wrap; }
+  .cap em { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; }
+  .cap .a em { background: #58c188; }
+  .cap .b em { background: #e5a13c; }
+
+  /* ---------- 嵌入模式 ---------- */
+  body.embed { padding: 0; background: transparent; }
+  body.embed .head { display: none; }
+  body.embed .wrap { max-width: none; margin: 0; padding: 0; }
+  body.embed .scene {
+    position: fixed; inset: 0; aspect-ratio: auto; border-radius: 0; border: 0; box-shadow: none;
+  }
+  body.embed .cap { display: none; }
+</style>
+</head>
+<body>
+<script>if (location.search.indexOf("embed") > -1) document.body.classList.add("embed");</script>
+<div class="wrap">
+  <div class="head">
+    <h1>自动全开草稿 v2.9 · 资料分析草稿纸</h1>
+    <p>分栏草稿 → 每题一张纸 → 只认 Apple Pencil</p>
+  </div>
+
+  <div class="scene">
+    <div class="stage">
+      <div class="stage-in" id="scene">
+
+        <div class="appbar" id="appbar">
+          <span class="back">‹ 返回</span>
+          <span class="ttl">资料分析</span>
+          <span class="sp"></span>
+          <span class="clock">02:13</span>
+          <span class="submit">交卷</span>
+        </div>
+
+        <div class="mat" id="mat">
+          <p>2024年，我国企业发明专利产业化平均收益（平均每件已产业化的有效专利产生的收益）为 <b class="hl">869.5万元/件</b>，较上年增长4.8%。其中，战略性新兴产业和未来产业领域企业的发明专利产业化平均收益分别为939.7万元/件和1132.7万元/件。分企业规模看，中型企业发明专利产业化率最高。</p>
+          <div class="tbl-cap">2020–2024年我国企业专利产业化率（单位：%）</div>
+          <table>
+            <tr><th></th><th>2020年</th><th>2021年</th><th>2022年</th></tr>
+            <tr><td>发明专利</td><td>44.9</td><td>46.8</td><td>48.1</td></tr>
+            <tr><td>大型企业</td><td>45.9</td><td>47.1</td><td>50.9</td></tr>
+            <tr><td>中型企业</td><td>46.8</td><td>54.6</td><td>55.4</td></tr>
+            <tr><td>小型企业</td><td>46.1</td><td>47.7</td><td>45.3</td></tr>
+          </table>
+        </div>
+
+        <div class="qzone" id="qzone">
+          <div class="q">
+            <div class="qhead"><span class="no">116.</span><span class="single">单选</span></div>
+            <div class="stem">2024年，我国企业发明专利产业化平均收益比上年增长约多少万元/件？</div>
+            <div class="opts">
+              <span><i>A</i>60</span><span><i>B</i>50</span>
+              <span><i>C</i>40</span><span><i>D</i>30</span>
+            </div>
+          </div>
+          <div class="q">
+            <div class="qhead"><span class="no">117.</span><span class="single">单选</span></div>
+            <div class="stem">将我国企业的发明专利、实用新型专利、外观设计专利按产业化率从高到低排序，则 2020–2023 年中次序与 2024 年次序一致的年份有几个？</div>
+            <div class="opts">
+              <span><i>A</i>0</span><span><i>B</i>1</span>
+              <span><i>C</i>2</span><span><i>D</i>3</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="penbtn" id="penbtn">✎</div>
+
+        <div class="topbar" id="topbar">
+          <span class="tb-x">×</span>
+          <span class="tb-no cur">116</span>
+          <span class="tb-no" id="tb117">117</span>
+          <span class="tb-no">118</span>
+          <span class="tb-no">119</span>
+          <span class="tb-no">120</span>
+          <span class="tb-sep"></span>
+          <span class="dot blk"></span><span class="dot blu"></span><span class="dot red"></span>
+          <span class="tb-sep"></span>
+          <span class="tb-t">A-</span><span class="tb-t">1.0x</span><span class="tb-t">A+</span>
+          <span class="tb-t">＜＞</span>
+          <span class="tb-lock" id="tbLock">🔒</span>
+          <span class="sp"></span>
+          <span class="tb-ico">↶</span><span class="tb-ico">↷</span><span class="tb-ico">🗑</span>
+        </div>
+
+        <div class="paper" id="paper">
+          <div class="p-head">
+            <span class="ph-no" id="phNo">116</span>
+            <b>A</b><b>B</b><b>C</b><b>D</b>
+            <b>小</b><b class="cur" id="phM">中</b><b id="phL">大</b>
+            <span class="ph-opa">◐</span>
+            <span class="ph-ico">↶</span><span class="ph-ico">↷</span><span class="ph-ico">🗑</span>
+            <span class="sp"></span>
+            <span class="ph-ico">⧉</span><span class="ph-ico">☆</span>
+            <span class="ph-x">×</span>
+          </div>
+          <svg viewBox="0 0 400 460" preserveAspectRatio="none">
+            <defs>
+              <clipPath id="clipP1"><rect id="cp1" x="0" y="0" width="0" height="460"/></clipPath>
+              <clipPath id="clipP2"><rect id="cp2" x="90" y="0" width="0" height="460"/></clipPath>
+            </defs>
+            <text x="30" y="120" font-size="42" font-style="italic" fill="#3f7df0"
+              font-family="Chalkboard SE, Segoe Script, cursive" clip-path="url(#clipP1)">41.7/1.048</text>
+            <text x="90" y="200" font-size="42" font-style="italic" fill="#3f7df0"
+              font-family="Chalkboard SE, Segoe Script, cursive" clip-path="url(#clipP2)">≈39.8</text>
+          </svg>
+        </div>
+
+        <svg class="layer" id="svgMain" viewBox="0 0 960 600" preserveAspectRatio="none">
+          <defs>
+            <clipPath id="clipC"><rect id="cc" x="0" y="0" width="0" height="600"/></clipPath>
+            <clipPath id="clipW1"><rect id="cw1" x="600" y="0" width="0" height="600"/></clipPath>
+            <clipPath id="clipW2"><rect id="cw2" x="648" y="0" width="0" height="600"/></clipPath>
+            <clipPath id="clipW3"><rect id="cw3" x="0" y="0" width="0" height="600"/></clipPath>
+          </defs>
+          <!-- 材料上的蓝圈 -->
+          <ellipse id="circ" cx="0" cy="0" rx="0" ry="0" fill="none" stroke="#3f7df0" stroke-width="3.2"
+            stroke-linecap="round" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/>
+          <!-- 右栏算式（写在分栏画布上，即 116 的内容） -->
+          <text x="600" y="415" font-size="34" font-style="italic" fill="#3f7df0"
+            font-family="Chalkboard SE, Segoe Script, cursive" clip-path="url(#clipW1)">869.5×4.8%</text>
+          <text x="648" y="462" font-size="34" font-style="italic" fill="#3f7df0"
+            font-family="Chalkboard SE, Segoe Script, cursive" clip-path="url(#clipW2)">≈41.7</text>
+          <!-- 手掌压过后的出墨一撇 -->
+          <path id="ink" d="M690,516 C706,504 726,500 742,506 S766,522 780,516" fill="none"
+            stroke="#3f7df0" stroke-width="4.5" stroke-linecap="round"
+            pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/>
+        </svg>
+
+        <svg class="layer" id="svgTrail" viewBox="0 0 960 600" preserveAspectRatio="none">
+          <defs><clipPath id="clipT"><rect id="ct" x="0" y="0" width="0" height="600"/></clipPath></defs>
+          <g id="trailDots"></g>
+        </svg>
+
+        <div class="palm" id="palm">✋</div>
+        <div class="bubble" id="bubble">手掌压在这儿，一个字都不出</div>
+        <div class="tag" id="tag">① 分栏 · 两边都能写</div>
+
+        <div class="ring" id="ring"></div>
+        <svg class="cursor" id="cursor" viewBox="0 0 20 22">
+          <path d="M3,1 L3,17 L7.5,13.4 L10.4,19.6 L13,18.4 L10.2,12.4 L15.6,12 Z"
+            fill="#1c2430" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/>
+        </svg>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="cap">
+    <span class="a"><em></em>装后：资料分析两栏随便写，每题一张纸，手掌压上去一个字不出</span>
+    <span class="b"><em></em>默认只认 Apple Pencil · 要手指也能写，点顶栏那只手</span>
+  </div>
+</div>
+
+<script>
+  const sceneEl = document.getElementById("scene");
+  const appbar  = document.getElementById("appbar");
+  const mat     = document.getElementById("mat");
+  const qzone   = document.getElementById("qzone");
+  const penbtn  = document.getElementById("penbtn");
+  const topbar  = document.getElementById("topbar");
+  const paper   = document.getElementById("paper");
+  const tb117   = document.getElementById("tb117");
+  const tbLock  = document.getElementById("tbLock");
+  const phNo    = document.getElementById("phNo");
+  const phM     = document.getElementById("phM");
+  const phL     = document.getElementById("phL");
+  const palm    = document.getElementById("palm");
+  const bubble  = document.getElementById("bubble");
+  const tag     = document.getElementById("tag");
+  const cursor  = document.getElementById("cursor");
+  const ring    = document.getElementById("ring");
+
+  const circ = document.getElementById("circ");
+  const cc   = document.getElementById("cc");
+  const cw1  = document.getElementById("cw1");
+  const cw2  = document.getElementById("cw2");
+  const cw3  = document.getElementById("cw3");
+  const cp1  = document.getElementById("cp1");
+  const cp2  = document.getElementById("cp2");
+  const ink  = document.getElementById("ink");
+  const trailDotsG = document.getElementById("trailDots");
+
+  /* 手掌拖过的点迹：沿手掌中心的路径撒点，随进度逐个亮起 */
+  const DOT_N = 18, dotEls = [];
+  (function makeDots() {
+    const P0 = [731.6, 220.8], P1 = [635.8, 280.8];   /* 手掌中心：起点 → 终点 */
+    for (let i = 0; i < DOT_N; i++) {
+      const q = i / (DOT_N - 1);
+      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c.setAttribute("cx", (P0[0] + (P1[0] - P0[0]) * q + Math.sin(q * Math.PI) * -7).toFixed(1));
+      c.setAttribute("cy", (P0[1] + (P1[1] - P0[1]) * q + Math.sin(q * Math.PI) * 9).toFixed(1));
+      c.setAttribute("r", "2.6");
+      c.setAttribute("fill", "#aab4c4");
+      c.setAttribute("opacity", "0");
+      trailDotsG.appendChild(c);
+      dotEls.push(c);
+    }
+  })();
+
+  const lerp = (a, b, p) => a + (b - a) * p;
+  const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+  const seg = (t, a, b) => clamp01((t - a) / (b - a));
+  const ease = (v) => 1 - Math.pow(1 - v, 3);
+  const easeIO = (v) => v < .5 ? 2*v*v : 1 - Math.pow(-2*v + 2, 2) / 2;
+
+  /* 落点统一按 960×600 坐标系书写，渲染时再换算成像素（舞台不一定正好 960 宽） */
+  const R = { rx: 1, ry: 1 };
+  let tipX = 0, tipY = 0, ringW = 0, ringH = 0, lastT = 0;
+
+  function measureView() {
+    const b = sceneEl.getBoundingClientRect();
+    if (!b.width) return;
+    R.rx = b.width / 960;
+    R.ry = b.height / 600;
+    /* 光标是 <svg>，没有 offsetWidth，用 rect 量（translate 不影响宽高） */
+    const cr = cursor.getBoundingClientRect();
+    tipX = cr.width * (3 / 20);   /* 指针尖在图标内的偏移 */
+    tipY = cr.height * (1 / 22);
+    ringW = ring.offsetWidth;
+    ringH = ring.offsetHeight;
+
+    /* 草稿纸与纸面 SVG 的画布坐标（layout 值，不受 transform 影响） */
+    PG.x = paper.offsetLeft / R.rx;  PG.y = paper.offsetTop / R.ry;
+    PG.w = paper.offsetWidth / R.rx; PG.h = paper.offsetHeight / R.ry;
+    const ps = paper.querySelector("svg");
+    PG.sx = ps.offsetLeft / R.rx; PG.sy = ps.offsetTop / R.ry;
+    PG.sw = ps.offsetWidth / R.rx; PG.sh = ps.offsetHeight / R.ry;
+  }
+
+  /* 纸面坐标（400×460）→ 舞台坐标（960×600） */
+  const PG = {};
+  function paper2vb(nx, ny) {
+    return [PG.x + PG.sx + nx / 400 * PG.sw, PG.y + PG.sy + ny / 460 * PG.sh];
+  }
+
+  /* 光标移动关键帧：[时间, x, y]（960×600 坐标） */
+  const CUR = [
+    [0,    668, 512],
+    [1420, 880, 494],   /* → 右下角笔按钮 */
+    [1750, 880, 494],
+    [2350, 700, 380],   /* 收，看分栏 */
+    [3150, 104, 78],    /* → 材料「869.5万元/件」起笔 */
+    [4150, 208, 88],
+    [4380, 598, 348],   /* → 右栏算式起点 */
+    [5450, 840, 352],
+    [5500, 650, 393],
+    [6300, 770, 396],
+    [6930, 97, 22],     /* → 顶栏 117 */
+    [7250, 97, 22],
+    [7900, 700, 330],   /* 看纸 */
+    [9640, 738, 97],    /* → 纸头「大」 */
+    [10100, 758, 97],   /* → ◐ 透明度 */
+    [11260, 473, 22],   /* → 顶栏锁 */
+    [11520, 473, 22],
+    [11800, 700, 330],
+    [13350, 704, 500],  /* → 笔尖出墨处 */
+    [15200, 704, 500]
+  ];
+  function cursorPos(t) {
+    if (t <= CUR[0][0]) return [CUR[0][1], CUR[0][2]];
+    for (let i = 1; i < CUR.length; i++) {
+      if (t <= CUR[i][0]) {
+        const [t0, x0, y0] = CUR[i - 1], [t1, x1, y1] = CUR[i];
+        const p = easeIO(clamp01((t - t0) / (t1 - t0)));
+        return [lerp(x0, x1, p), lerp(y0, y1, p)];
+      }
+    }
+    return [CUR[CUR.length - 1][1], CUR[CUR.length - 1][2]];
+  }
+  function ringAt(t, cx, cy, t0) {
+    const p = seg(t, t0, t0 + 520);
+    if (p <= 0 || p >= 1) { ring.style.opacity = 0; return; }
+    const s = .4 + p * .9;
+    ring.style.opacity = (1 - p) * .9;
+    ring.style.transform = "translate(" + (cx * R.rx - ringW / 2) + "px," + (cy * R.ry - ringH / 2) + "px) scale(" + s + ")";
+  }
+
+  const CYCLE = 15600;
+
+  function render(t) {
+    lastT = t;
+    const fade = seg(t, 15150, CYCLE);
+    sceneEl.style.opacity = 1 - fade;
+
+    /* ---- 分栏动画 ---- */
+    const sp = ease(seg(t, 1750, 2550));
+    mat.style.left = lerp(3, 1.6, sp) + "%";
+    mat.style.top = lerp(6.8, 6.2, sp) + "%";
+    mat.style.width = lerp(94, 53.5, sp) + "%";
+    mat.style.height = lerp(52, 72, sp) + "%";
+    qzone.style.left = lerp(3, 57.6, sp) + "%";
+    qzone.style.top = lerp(60, 6.2, sp) + "%";
+    qzone.style.width = lerp(94, 41, sp) + "%";
+    qzone.style.height = lerp(36, 88, sp) + "%";
+    appbar.style.opacity = 1 - sp;
+    appbar.style.transform = "translateY(" + -sp * 100 + "%)";
+
+    /* 笔按钮 */
+    const pb = 1 - ease(seg(t, 1750, 2150));
+    penbtn.style.opacity = pb;
+    penbtn.style.transform = "scale(" + (.6 + .4 * pb) + ")";
+
+    /* 顶栏进入 */
+    const tp = ease(seg(t, 1950, 2600));
+    topbar.style.opacity = tp;
+    topbar.style.transform = "translateY(" + (1 - tp) * -100 + "%)";
+
+    /* 功能标签 */
+    const tag1 = ease(seg(t, 2700, 3050));
+    const tag2 = ease(seg(t, 7050, 7400));
+    const tag3 = ease(seg(t, 11450, 11800));
+    let tagTxt = "① 分栏 · 两边都能写", tagP = tag1;
+    if (tag3 > 0) { tagTxt = "③ 只认 Apple Pencil"; tagP = tag3; }
+    else if (tag2 > 0) { tagTxt = "② 每题一张纸 · 换题不串字"; tagP = tag2; }
+    if (tag.textContent !== tagTxt) tag.textContent = tagTxt;
+    tag.style.opacity = tagP;
+    tag.style.transform = "translateY(" + (1 - tagP) * -10 + "px)";
+
+    /* ---- 材料上画圈 ---- */
+    const cp = seg(t, 3200, 4150);
+    circ.setAttribute("stroke-dashoffset", 100 - cp * 100);
+    if (cp <= 0) { circ.setAttribute("rx", 0); circ.setAttribute("ry", 0); }
+    else {
+      circ.setAttribute("cx", 118 + cp * 38); circ.setAttribute("cy", 87);
+      circ.setAttribute("rx", 54); circ.setAttribute("ry", 14);
+    }
+
+    /* ---- 右栏写字（分栏画布 = 116 的内容） ---- */
+    const w1 = seg(t, 4380, 5450);
+    cw1.setAttribute("width", 240 * w1);
+    const w2 = seg(t, 5500, 6300);
+    cw2.setAttribute("width", 120 * w2);
+
+    /* ---- 点 117 → 弹纸 ---- */
+    const p117 = seg(t, 6930, 7100);
+    tb117.classList.toggle("cur", p117 > .5);
+    phNo.textContent = p117 > .5 ? "117" : "116";
+    const pp = ease(seg(t, 7150, 7750));
+    paper.style.opacity = pp;
+    paper.style.transform = "translateY(" + (1 - pp) * 26 + "px) scale(" + (.92 + .08 * pp) + ")";
+
+    /* 纸上的字 */
+    const q1 = seg(t, 7900, 8950);
+    cp1.setAttribute("width", 300 * q1);
+    const q2 = seg(t, 9000, 9550);
+    cp2.setAttribute("width", 190 * q2);
+
+    /* 「大」档位 & 透明度 */
+    const sz = seg(t, 9640, 9900);
+    phL.classList.toggle("cur", sz > .5);
+    phM.classList.toggle("cur", sz <= .5);
+    const opa = seg(t, 10100, 10350);
+    paper.style.background = "rgba(255,255,255," + (0.94 - 0.4 * opa) + ")";
+
+    /* ---- 点锁 → 手掌 ---- */
+    const lk = seg(t, 11300, 11550);
+    tbLock.classList.toggle("on", lk > .5);
+
+    const pin = ease(seg(t, 11750, 12250));
+    /* 手掌沿轨迹从右上压到左下 */
+    palm.style.opacity = pin;
+    const pd = ease(seg(t, 12250, 13100));
+    palm.style.left = lerp(72, 62, pd) + "%";
+    palm.style.top = lerp(30, 40, pd) + "%";
+    palm.style.transform = "translateY(" + (1 - pin) * -40 + "px)";
+
+    /* 手掌拖过的点迹 */
+    const tr = seg(t, 12250, 13150);
+    const lift0 = 1 - ease(seg(t, 13300, 13800));   /* 手掌抬起时点迹一起淡出 */
+    for (let i = 0; i < DOT_N; i++)
+      dotEls[i].setAttribute("opacity", (clamp01(tr * DOT_N * 1.18 - i) * .85 * lift0).toFixed(2));
+
+    /* 气泡 */
+    const bb = ease(seg(t, 12550, 12950));
+    bubble.style.opacity = bb;
+    bubble.style.transform = "translateY(" + (1 - bb) * 8 + "px)";
+
+    /* 手掌抬起 → 笔尖出墨一撇 */
+    const lift = ease(seg(t, 13300, 13800));
+    palm.style.opacity = pin * (1 - lift);
+    bubble.style.opacity = bb * (1 - seg(t, 13350, 13750));
+    const iw = seg(t, 13550, 14250);
+    ink.setAttribute("stroke-dashoffset", 100 - iw * 100);
+
+    /* ---- 光标 / 涟漪 ---- */
+    let [cx, cy] = cursorPos(t);
+    /* 正在落笔的几段：光标直接贴着笔迹走，不靠关键帧猜 */
+    if (t >= 3200 && t < 4260) {                 /* 圈材料数字：沿椭圆周长 */
+      const a = cp * Math.PI * 2;
+      cx = 118 + 38 * cp + 54 * Math.cos(a);
+      cy = 87 + 14 * Math.sin(a);
+    } else if (t >= 4380 && t < 5490) {          /* 右栏第一行算式 */
+      cx = Math.min(600 + 240 * w1, 788); cy = 413;
+    } else if (t >= 5500 && t < 6340) {          /* 右栏第二行 */
+      cx = Math.min(648 + 120 * w2, 742); cy = 460;
+    } else if (t >= 7900 && t < 8980) {          /* 纸上第一行 */
+      [cx, cy] = paper2vb(Math.min(Math.max(30, 300 * q1), 242), 122);
+    } else if (t >= 9000 && t < 9580) {          /* 纸上第二行 */
+      [cx, cy] = paper2vb(Math.max(90, 190 * q2), 200);
+    }
+    cursor.style.transform = "translate(" + (cx * R.rx - tipX) + "px," + (cy * R.ry - tipY) + "px)";
+    /* 手掌登场时把鼠标箭头收起来（此时是「手指» 在操作），出墨一撇再放回来 */
+    cursor.style.opacity = Math.min(1, 1 - seg(t, 11800, 12050) + seg(t, 13400, 13650));
+    if (t >= 1450 && t < 1900) ringAt(t, 880, 494, 1450);
+    else if (t >= 6950 && t < 7350) ringAt(t, 97, 22, 6950);
+    else if (t >= 9660 && t < 10060) ringAt(t, 738, 97, 9660);
+    else if (t >= 10120 && t < 10520) ringAt(t, 758, 97, 10120);
+    else if (t >= 11280 && t < 11700) ringAt(t, 473, 22, 11280);
+    else ring.style.opacity = 0;
+  }
+
+  measureView();
+  render(0);
+  addEventListener("resize", () => { measureView(); render(lastT); });
+
+  let frozen = false;
+  window.__setT = function (ms) { frozen = true; render(((ms % CYCLE) + CYCLE) % CYCLE); };
+  window.__play = function () { frozen = false; };
+
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const t0 = performance.now();
+    (function loop(now) {
+      if (!frozen) render((now - t0) % CYCLE);
+      requestAnimationFrame(loop);
+    })(t0);
+  }
+</script>
+</body>
+</html>
