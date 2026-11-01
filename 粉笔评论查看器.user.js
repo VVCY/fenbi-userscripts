@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         粉笔评论查看器（可收藏优质评论）
 // @namespace    https://github.com/local/fenbi-comment-viewer
-// @version      2.8.3
+// @version      2.9.1
 // @description  在粉笔网站题目页注入「查看评论」按钮，直接调用粉笔评论接口展示精选评论，可收藏优质评论。
 // @author       local
 // @match        https://www.fenbi.com/spa/tiku/*
@@ -224,7 +224,7 @@
  *  a) 已收藏的评论再次点击「收藏」按钮即取消收藏：removeFavoriteFromWebdav(cfg, commentMarker) 沿用
  *     「读远端 → 改 → 整体回写」事务与 ETag 乐观锁（412/409/428 重读重试、404/405 建目录后重试），
  *     与 appendCommentToWebdav 是同一套并发控制，不做「删除后重排文件」之类的高危改动。
- *  b) 移除规则由纯函数 removeFavoriteFromMarkdown(existingText, commentMarker) 决定（可离线单测）：
+ *  b) 移除规则由纯函数 removeFavoriteFromDocument(existingText, commentId) 决定（纯 JSON 文档）：
  *     ① 该评论标记不存在 → removed:false，内容原样返回，远端文件绝不被改动；
  *     ② 该题区块下仍有其它收藏 → 只摘掉这条评论块（标记行 + 其后的引用行），题目区块与其它收藏保持不动；
  *     ③ 该题区块下已无其它收藏 → 整个题目区块（题目标题 / 题干 / 选项 / 收藏的评论）一并移除，
@@ -248,7 +248,7 @@
  *  c) 解析链路（纯函数，可离线单测）：parseFavoritesMarkdown(text) 用 findQuestionMarkerOffsets 切题目区块，
  *     逐块解析题目标题（## 行）、题干（**题干** 段）、选项（**选项** 段的行首 - 项）与评论区
  *     （**收藏的评论** 段），评论区再按 <!-- fcv:comment:ID --> 标记切条，条内取 `> 收藏时间：…` 与引用正文；
- *     collectFavoriteComments(parsed) 把评论区扁平化并附上所属题目信息，按收藏时间倒序（无时间 / 同时间保持文件顺序）；
+ *     collectFavoriteComments 已停用（parseFavoritesMarkdown 退化为空壳）；
  *     favPreviewLine(text, max) 生成单行预览。文件头里的示例占位标记仍被 `(?!\s*\.\.\.)` 断言排除。
  *  d) 渲染：评论视图每条一行（收藏时间 + 题号标签 + 「展开」「删除」），「展开」在同一行下方展开
  *     题号 / 题目 / 题干 / 选项 / 完整正文（正文超长时收起态只显示预览）；题目视图按题成组，
@@ -263,6 +263,26 @@
  *     收藏评论数 / 题目区块数 / 远端文件路径。
  *  g) 入口补挂：油猴菜单新增「★ 我的收藏」；控制台新增 __fenbiCV.webdav.parseFavorites(text) /
  *     listFavorites() / openFavorites() / deleteFavorite(commentId)，便于离线自查与手动管理。
+ *
+ * v2.9.0（本次改动：收藏存储格式由 Markdown 改为 JSON；WebDAV 同步 / ETag 乐观锁 / 按题聚合 /
+ *          判重语义零改动，评论拉取 / 按钮定位 / 复制 / 配置面板框架零改动）：
+ *  a) 远端收藏文件改为 JSON 文档（默认文件名 fenbi-comments.json）：
+ *     { "format": "fenbi-comment-favorites", "version": 1,
+ *       "questions": [{ "questionId", "label", "stem", "choices",
+ *                       "comments": [{ "commentId", "time", "body" }] }] }。
+ *     判重依据从隐藏标记 <!-- fcv:comment:ID --> 改为评论对象里的 commentId 字段；
+ *     按题聚合键仍为 questionId（原题目唯一 ID），同题的收藏评论都落在该题 comments 数组末尾。
+ *  b) 读取纯 JSON：parseFavoritesDocument() 仅解析 JSON 文档，旧 Markdown 文本直接返回空收藏（不再兼容），
+ *     旧数据自行迁移。
+ *  c) 写入纯 JSON：mergeFavoriteIntoDocument() / removeFavoriteFromDocument() 仅处理 JSON 文档，
+ *     不再接受旧 Markdown 文本，旧数据自行迁移。
+ *  d) 取消收藏参数从评论隐藏标记改为评论 ID：removeFavoriteFromWebdav(cfg, commentId)，
+ *     面板删除 / 按钮取消收藏 / 控制台 deleteFavorite 同步切换；该题下已无其它收藏时整个题目节点移除。
+ *  e) 统计与展示：连接测试与面板状态行改用 countFavoritesInDocument()（JSON 优先、Markdown 兜底）；
+ *     buildQuestionSection / buildCommentBlock 已删除（不再组装 Markdown 区块），
+ *     favMarker / countFavMarkers / countQuestionBlocks / parseFavoritesMarkdown 保留为旧格式兼容层。
+ *  f) 控制台自查入口同步更新：parseFavorites(text) / mergeFavorite(existingText, item) /
+ *     removeFavorite(existingText, commentId) / listFavorites() 均走 JSON 优先解析。
  */
 
 (function () {
@@ -276,7 +296,7 @@
   // 它长期停在 2.7.0，**不能**用来判断浏览器里装的是哪一版脚本（曾因此误判「已更新」）。
   // 判断是否装到新版：控制台执行 __fenbiCV.version 或 __fenbiCV.collect().scriptVersion，
   // 或看 <html data-fenbi-comment-viewer="x.y.z">。此处必须与文件头 @version 保持一致。
-  const SCRIPT_VERSION = '2.8.3';
+  const SCRIPT_VERSION = '2.9.1';
   // v1.6.0：按钮外部定位常量。2cm ≈ 75.6px（CSS 里也可直接写 left:-2cm），
   // 这里用 px 便于 JS 精确对齐题号行、并避免不同 DPR 下的换算误差。
   const EXTERNAL_BTN_OFFSET_PX = 75.6;
@@ -343,7 +363,7 @@
   // v2.4.0：评论「收藏」用到的 WebDAV 常量
   const WEBDAV_STORE_KEY = 'fcv_webdav_config_v1';  // 配置持久化键（服务器地址 / 账号 / 密码 / 保存路径）
   const FAV_STORE_KEY = 'fcv_fav_comment_ids_v1';   // 本机已收藏评论 ID 列表（用于「已收藏」状态标记）
-  const DEFAULT_WEBDAV_FILE = 'fenbi-comments.md';  // 保存路径默认值（相对 WebDAV 根目录）
+  const DEFAULT_WEBDAV_FILE = 'fenbi-comments.json';  // 保存路径默认值（相对 WebDAV 根目录）
   const JIANGUOYUN_ROOT_DIR = '我的坚果云';         // 坚果云 WebDAV 虚拟服务根下唯一的真实挂载目录（保存路径只填文件名时自动补全）
   const WEBDAV_TIMEOUT_MS = 30000;                  // 单次 WebDAV 请求超时（毫秒）
   const FAV_MAX_REMOTE_RETRY = 2;                   // 远端并发冲突（412 等）时的最大重试次数
@@ -352,21 +372,13 @@
   const FAV_MARKER_TAIL = ' -->';
   // v2.5.0：题目区块的隐藏标记（同一道题的收藏评论聚合到同一区块，靠它定位）
   const FAV_Q_MARKER_HEAD = '<!-- fcv:question:';
-  // 远端文件不存在时写入的文件头（仅首次创建时使用）
-  const FAV_FILE_HEADER = [
-    '# 粉笔评论收藏（Fenbi Comment Viewer）',
-    '',
-    '> 本文件由「粉笔评论查看器」油猴脚本自动维护，按**题目聚合**：每道题一个区块，',
-    '> 区块内自上而下为题目标题（第 N 题）→ 题干 → 选项（A/B/C/D 逐行）→ 收藏的评论。',
-    '> 同一道题再收藏新评论时，评论会并入该题区块的「收藏的评论」区末尾，不会新建重复区块。',
-    '> 每条评论只保留两项：收藏时间、评论正文（引用格式）。',
-    '> 取消收藏时，本文件会移除该条评论；若该题区块下已无其它收藏，题目区块会一并移除。',
-    '> 写入方式为「先读取本文件已有内容 → 并入该题区块（没有该题区块则在末尾新建）→ 整体回写」，',
-    '> 并用 WebDAV ETag 乐观锁防止覆盖并发改动。',
-    '> 请勿删除两类隐藏标记：题目区块标记（形如 `<!-- fcv:question:... -->`）是题目区块的聚合依据，',
-    '> 评论标记（形如 `<!-- fcv:comment:... -->`）是评论判重依据（脚本靠它避免重复写入同一条评论）。',
-    '',
-  ].join('\n');
+  // v2.9.0：收藏文档由 Markdown 改为 JSON 存储。远端文件不存在时写入的空文档（仅首次创建时使用）
+  // JSON 结构：{ "format": "fenbi-comment-favorites", "version": 1,
+  //   "questions": [{ "questionId", "label", "stem", "choices",
+  //                   "comments": [{ "commentId", "time", "body" }] }] }
+  // commentId 即判重依据（不再依赖隐藏标记）；questionId 仍为按题聚合键。
+  const FAV_FORMAT = 'fenbi-comment-favorites';  // JSON 收藏文档格式标识（v2.9.0）
+  const FAV_FILE_HEADER = JSON.stringify({ format: FAV_FORMAT, version: 1, questions: [] }, null, 2) + '\n';
 
   // episode 映射接口的 tiku_type 候选值（实测 tiku_prefix 必须与 tiku_type 配对，
   // 如 sydw<->5、gwy<->1，用错组合会返回 {"code":-1,"msg":"tiku_prefix 错误"}）
@@ -1216,7 +1228,7 @@
   function webdavGetFile(cfg) {
     return webdavRequest('GET', buildWebdavFileUrl(cfg), {
       'Authorization': buildWebdavAuthHeader(cfg),
-      'Accept': 'text/markdown, text/plain, */*',
+      'Accept': 'application/json, text/markdown, text/plain, */*',
       'Cache-Control': 'no-cache',
     }).then((res) => {
       // 404：目标文件不存在；409（坚果云等返回 AncestorsNotFound / Conflict）：上级目录不存在
@@ -1233,7 +1245,7 @@
     cond = cond || {};
     const headers = {
       'Authorization': buildWebdavAuthHeader(cfg),
-      'Content-Type': 'text/markdown; charset=utf-8',
+      'Content-Type': 'application/json; charset=utf-8',
     };
     if (cond.etag) headers['If-Match'] = cond.etag;
     else if (cond.create) headers['If-None-Match'] = '*';
@@ -1296,8 +1308,8 @@
     return action + '失败，重试 ' + FAV_MAX_REMOTE_RETRY + ' 次仍未成功（' + (status || '未知原因') + '）。' + tip;
   }
 
-  // 写入一条收藏：读远端 → 判重 / 并入该题区块（或新建区块）→ 整体回写（并发冲突自动重读重试）
-  // item 由 buildFavoriteItem() 组装（含两类隐藏标记、题目区块全文与评论块）
+  // 写入一条收藏：读远端 → 判重 / 并入该题（或新建题目节点）→ 整体回写（并发冲突自动重读重试）
+  // item 由 buildFavoriteItem() 组装（JSON 文档里的一条评论 + 所属题目信息）
   async function appendCommentToWebdav(cfg, item) {
     let conflict = '';
     // v2.8.0：进循环前先主动确保保存路径的上级目录存在。原先只有 PUT 返回 404/405 才去建目录，
@@ -1306,13 +1318,13 @@
     for (let attempt = 0; attempt <= FAV_MAX_REMOTE_RETRY; attempt++) {
       const cur = await webdavGetFile(cfg);
       const base = cur.exists ? cur.content : FAV_FILE_HEADER;
-      const merged = mergeFavoriteIntoMarkdown(base, item);
+      const merged = mergeFavoriteIntoDocument(base, item);
       if (merged.duplicated) {
         return {
           duplicated: true,
           created: false,
-          count: countFavMarkers(base),
-          questions: countQuestionBlocks(base),
+          count: countFavoritesInDocument(base).comments,
+          questions: countFavoritesInDocument(base).questions,
         };
       }
       const res = await webdavPutFile(cfg, merged.text, cur.exists ? { etag: cur.etag } : { create: true });
@@ -1340,17 +1352,18 @@
         duplicated: false,
         created: !cur.exists,
         createdQuestion: !!merged.createdQuestion,
-        count: countFavMarkers(merged.text),
-        questions: countQuestionBlocks(merged.text),
+        count: merged.count,
+        questions: merged.questions,
         via: res.via,
       };
     }
     throw new Error(formatWebdavWriteFailure('收藏', cfg, conflict));
   }
 
-  // v2.6.5：取消收藏 —— 读远端 → 按评论标记摘掉该条（该题已无其它收藏时整块删题）→ 整体回写
+  // v2.6.5：取消收藏 —— 读远端 → 按评论 ID 摘掉该条（该题已无其它收藏时整题删除）→ 整体回写
+  // v2.9.0：参数由评论隐藏标记改为评论 ID（JSON 文档判重 / 定位直接用 commentId）
   // 并发冲突处理与 appendCommentToWebdav 完全一致（412/409/428 重读重试；404/405 建目录后重试）
-  async function removeFavoriteFromWebdav(cfg, commentMarker) {
+  async function removeFavoriteFromWebdav(cfg, commentId) {
     let conflict = '';
     for (let attempt = 0; attempt <= FAV_MAX_REMOTE_RETRY; attempt++) {
       const cur = await webdavGetFile(cfg);
@@ -1361,7 +1374,7 @@
           remainingInQuestion: 0, count: 0, questions: 0,
         };
       }
-      const next = removeFavoriteFromMarkdown(cur.content, commentMarker);
+      const next = removeFavoriteFromDocument(cur.content, commentId);
       if (!next.removed) {
         return {
           removed: false, noFile: false, noComment: true, questionDeleted: false,
@@ -1426,8 +1439,8 @@
       dav: dav ? dav[1].trim() : '',
       filePath: c.filePath,
       fileExists: file.exists,
-      fileCount: countFavMarkers(file.content),
-      fileQuestions: countQuestionBlocks(file.content),
+      fileCount: countFavoritesInDocument(file.content).comments,
+      fileQuestions: countFavoritesInDocument(file.content).questions,
     };
   }
 
@@ -1466,7 +1479,7 @@
     storageSet(FAV_STORE_KEY, JSON.stringify(Array.from(set)));
   }
 
-  // ---------------- 收藏记录（Markdown 按题目聚合块，v2.5.0） ----------------
+  // ---------------- 收藏记录（JSON 按题目聚合文档，v2.9.0；旧 Markdown 仅作兼容解析） ----------------
   function pad2(n) { return String(n).padStart(2, '0'); }
 
   function formatFavTime(d) {
@@ -1750,81 +1763,83 @@
     return ctx;
   }
 
-  // ---------------- v2.5.0：收藏 Markdown 组装（题目区块 + 评论条目） ----------------
-  // 题目区块：题目标题 / 题干 / 选项在上，「收藏的评论」区在下（新评论插到该区末尾）
-  function buildQuestionSection(ctx, commentBlock) {
-    const c = ctx || {};
-    const lines = [];
-    lines.push(favQuestionMarker(c.questionId));
-    lines.push('## ' + (c.label ? String(c.label) : '题目'));
-    lines.push('');
-    lines.push('**题干**');
-    lines.push('');
-    lines.push(c.stem ? String(c.stem) : '（未取到题干）');
-    lines.push('');
-    lines.push('**选项**');
-    lines.push('');
-    if (c.choices && c.choices.length) c.choices.forEach((t) => lines.push('- ' + t));
-    else lines.push('（未取到选项）');
-    lines.push('');
-    lines.push('**收藏的评论**');
-    lines.push('');
-    lines.push(commentBlock);
-    return lines.join('\n');
-  }
-
-  // 单条评论：只保留「收藏时间 + 正文引用」，隐藏标记仍在（判重依据）
-  function buildCommentBlock(c, at) {
-    const lines = [];
-    lines.push(favMarker(c.id));
-    lines.push('> 收藏时间：' + at);
-    lines.push('>');
-    const body = String(c.content == null ? '' : c.content).replace(/\s+$/, '');
-    const bodyLines = body === '' ? [] : body.split(/\r?\n/);
-    if (!bodyLines.length) lines.push('>');
-    else bodyLines.forEach((ln) => lines.push(ln === '' ? '>' : '> ' + ln));
-    return lines.join('\n');
-  }
-
-  // 组装一条待写入的收藏（题目区块 + 评论条目 + 两类标记），写入前一次成型便于复用 / 调试
+  // ---------------- v2.9.0：收藏 JSON 组装（一条评论 + 所属题目信息） ----------------
+  // 组装一条待写入的收藏（JSON 文档里的一条评论 + 所属题目信息），写入前一次成型便于复用 / 调试
   function buildFavoriteItem(c, ctx) {
-    const at = formatFavTime(new Date());
-    const commentBlock = buildCommentBlock(c, at);
     const meta = ctx || {};
-    const questionMarker = favQuestionMarker(meta.questionId);
     return {
-      at: at,
-      commentMarker: favMarker(c.id),
-      commentBlock: commentBlock,
-      questionMarker: questionMarker,
-      questionSection: buildQuestionSection(meta, commentBlock),
+      at: formatFavTime(new Date()),
+      commentId: String(c.id == null ? '' : c.id),
+      body: String(c.content == null ? '' : c.content).replace(/\s+$/, ''),
+      questionId: String(meta.questionId == null ? '' : meta.questionId),
+      label: String(meta.label == null ? '' : meta.label),
+      stem: String(meta.stem == null ? '' : meta.stem),
+      choices: Array.isArray(meta.choices) ? meta.choices.map((x) => String(x)) : [],
     };
   }
 
-  // 合并一条收藏到已有 Markdown 文本（纯函数，供 appendCommentToWebdav 读写之间调用）
-  //  - 该评论标记已存在 → duplicated（内容原样返回，不重复写入）
-  //  - 该题区块已存在   → 把评论块插到「该题区块」评论区末尾（下一个题目区块之前）
-  //  - 该题区块不存在   → 在文件末尾新建完整题目区块
-  function mergeFavoriteIntoMarkdown(existingText, item) {
+  // v2.9.0：把收藏对象序列化为规范 JSON 文档文本（只保留 JSON 字段，去掉旧 Markdown 解析带的 marker 等冗余）
+  function toFavoritesJsonText(questions) {
+    const qs = (questions || []).map((q) => ({
+      questionId: String(q.questionId == null ? '' : q.questionId),
+      label: String(q.label == null ? '' : q.label),
+      stem: String(q.stem == null ? '' : q.stem),
+      choices: Array.isArray(q.choices) ? q.choices.map((x) => String(x)) : [],
+      comments: ((q.comments || [])).map((c) => ({
+        commentId: String(c.commentId == null ? '' : c.commentId),
+        time: String(c.time == null ? '' : c.time),
+        body: String(c.body == null ? '' : c.body),
+      })),
+    }));
+    return JSON.stringify({ format: FAV_FORMAT, version: 1, questions: qs }, null, 2) + '\n';
+  }
+
+  // v2.9.0：合并一条收藏到已有收藏文档（纯函数，供 appendCommentToWebdav 读写之间调用）
+  // 仅处理纯 JSON 文档，旧 Markdown 文本不再兼容
+  //  - 该评论 commentId 已存在 → duplicated（内容原样返回，不重复写入）
+  //  - 该题 questionId 已存在   → 新评论并入该题的 comments 末尾
+  //  - 该题 questionId 不存在   → 新建完整题目节点（题目信息随 item 一并写入）
+  function mergeFavoriteIntoDocument(existingText, item) {
     const text = String(existingText == null ? '' : existingText);
-    if (!item || !item.commentBlock || !item.questionSection) throw new Error('收藏内容为空，无法写入');
-    if (item.commentMarker && text.indexOf(item.commentMarker) !== -1) {
-      return { text: text, duplicated: true, createdQuestion: false };
+    if (!item || item.commentId === null || item.commentId === undefined || String(item.commentId) === '') {
+      throw new Error('收藏内容为空，无法写入');
     }
-    const qIdx = item.questionMarker ? text.indexOf(item.questionMarker) : -1;
-    if (qIdx === -1) {
-      const trimmed = text.replace(/\s+$/, '');
-      const sep = trimmed === '' ? '' : '\n\n';
-      return { text: trimmed + sep + item.questionSection + '\n', duplicated: false, createdQuestion: true };
+    const doc = parseFavoritesDocument(text);
+    const qs = doc.questions || [];
+    const cid = String(item.commentId);
+    let duplicated = false;
+    let createdQuestion = false;
+    let target = null;
+    for (let i = 0; i < qs.length; i++) {
+      if (String(qs[i].questionId) === String(item.questionId == null ? '' : item.questionId)) { target = qs[i]; break; }
     }
-    // 该题区块的范围：[题目标记, 下一个题目标记) —— 没有下一个题目则到文件末尾
-    const headEnd = qIdx + item.questionMarker.length;
-    const nextRel = text.slice(headEnd).search(/<!--\s*fcv:question:(?!\s*\.\.\.)[^>]*?-->/);
-    const blockEnd = nextRel === -1 ? text.length : headEnd + nextRel;
-    const before = text.slice(0, blockEnd).replace(/\s+$/, '');
-    const tail = text.slice(blockEnd).replace(/^\s+/, '');
-    const merged = before + '\n\n' + item.commentBlock + '\n';
-    return { text: tail ? merged + '\n' + tail : merged, duplicated: false, createdQuestion: false };
+    if (target) {
+      for (let j = 0; j < target.comments.length; j++) {
+        if (String(target.comments[j].commentId) === cid) { duplicated = true; break; }
+      }
+      if (!duplicated) {
+        target.comments.push({ commentId: cid, time: String(item.at || ''), body: String(item.body || '') });
+      }
+    } else {
+      target = {
+        questionId: String(item.questionId == null ? '' : item.questionId),
+        label: String(item.label == null ? '' : item.label),
+        stem: String(item.stem == null ? '' : item.stem),
+        choices: Array.isArray(item.choices) ? item.choices.map((x) => String(x)) : [],
+        comments: [{ commentId: cid, time: String(item.at || ''), body: String(item.body || '') }],
+      };
+      qs.push(target);
+      createdQuestion = true;
+    }
+    const out = toFavoritesJsonText(qs);
+    const counts = countFavoritesInDocument(out);
+    return {
+      text: out,
+      duplicated: duplicated,
+      createdQuestion: createdQuestion,
+      count: counts.comments,
+      questions: counts.questions,
+    };
   }
 
   // ---------------- v2.6.5：取消收藏（从收藏 Markdown 文本里移除一条收藏） ----------------
@@ -1858,57 +1873,46 @@
     return out;
   }
 
-  // 从收藏 Markdown 文本里移除一条收藏（纯函数，供 removeFavoriteFromWebdav 在读写之间调用）
-  //  - 找不到该评论标记            → removed:false（内容原样返回，绝不动远端文件）
-  //  - 该题区块下仍有其它收藏      → 只摘掉这条评论块，题目区块（题干 / 选项 / 其它收藏）保持不动
-  //  - 该题区块下已无其它收藏      → 把整个题目区块（题目标题 / 题干 / 选项 / 收藏的评论）一并移除
-  //  - 评论标记不在任何题目区块内  → 只摘评论块，绝不删题目区块与文件头（防误删）
-  // 输出统一收尾为「区块之间一个空行 + 文件末尾一个换行」，保证反复收藏 / 取消后文件格式稳定。
-  function removeFavoriteFromMarkdown(existingText, commentMarker) {
+  // v2.9.0：从收藏文档里移除一条收藏（纯函数，供 removeFavoriteFromWebdav 在读写之间调用）
+  // 仅处理纯 JSON 文档，旧 Markdown 文本不再兼容
+  //  - 找不到该评论 commentId  → removed:false（内容原样返回，绝不动远端文件）
+  //  - 该题下仍有其它收藏      → 只摘掉这条评论，题目节点（题干 / 选项 / 其它收藏）保持不动
+  //  - 该题下已无其它收藏      → 整个题目节点一并移除
+  // 输出统一为格式化的 JSON 文档（末尾换行），保证反复收藏 / 取消后文件格式稳定。
+  function removeFavoriteFromDocument(existingText, commentId) {
     const text = String(existingText == null ? '' : existingText);
-    const marker = String(commentMarker == null ? '' : commentMarker);
-    if (!marker || marker.indexOf('fcv:comment:') === -1) throw new Error('评论标记为空，无法取消收藏');
-    const cIdx = text.indexOf(marker);
-    if (cIdx === -1) {
+    const cid = String(commentId == null ? '' : commentId);
+    if (!cid) throw new Error('评论 ID 为空，无法取消收藏');
+    const doc = parseFavoritesDocument(text);
+    const qs = doc.questions || [];
+    let foundQ = -1;
+    let foundC = -1;
+    for (let i = 0; i < qs.length && foundQ === -1; i++) {
+      const cs = qs[i].comments || [];
+      for (let j = 0; j < cs.length; j++) {
+        if (String(cs[j].commentId) === cid) { foundQ = i; foundC = j; break; }
+      }
+    }
+    if (foundQ === -1) {
+      const counts = countFavoritesInDocument(text);
       return {
         text: text, removed: false, questionDeleted: false, remainingInQuestion: 0,
-        count: countFavMarkers(text), questions: countQuestionBlocks(text),
+        count: counts.comments, questions: counts.questions,
       };
     }
-    const cut = favCommentBlockRange(text, cIdx);
-    // 这条评论所属的题目区块 = 位置在它之前的最后一个题目区块标记
-    const qs = findQuestionMarkerOffsets(text);
-    let curQ = -1;
-    let nextQ = -1;
-    for (let i = 0; i < qs.length; i++) {
-      if (qs[i].head < cIdx) { curQ = qs[i].head; nextQ = i + 1 < qs.length ? qs[i + 1].head : -1; }
-    }
-    let others = 0;
-    if (curQ !== -1) {
-      const inBlock = text.slice(curQ, nextQ === -1 ? text.length : nextQ);
-      const all = inBlock.match(/<!--\s*fcv:comment:(?!\s*\.\.\.)[^>]*?-->/g);
-      others = (all ? all.length : 0) - 1;
-      if (others < 0) others = 0;
-    }
-    let out;
+    const q = qs[foundQ];
+    q.comments.splice(foundC, 1);
     let questionDeleted = false;
-    if (curQ !== -1 && others === 0) {
-      // 该题下已无其它收藏 → 整个题目区块（连同前后分隔空行）一并移除
-      const pre = favTrimEnd(text.slice(0, curQ));
-      const post = favTrimStart(text.slice(nextQ === -1 ? text.length : nextQ));
-      out = (pre && post) ? (pre + '\n\n' + post) : (pre + post);
+    if (!q.comments.length) {
+      qs.splice(foundQ, 1);
       questionDeleted = true;
-    } else {
-      // 该题还有别的收藏（或标记不在任何题块内）→ 只摘掉这条评论块
-      const pre = favTrimEnd(text.slice(0, cut.start));
-      const post = favTrimStart(text.slice(cut.end));
-      out = (pre && post) ? (pre + '\n\n' + post) : (pre + post);
     }
-    out = out ? (favTrimEnd(out) + '\n') : FAV_FILE_HEADER;
+    const out = toFavoritesJsonText(qs);
+    const counts = countFavoritesInDocument(out);
     return {
       text: out, removed: true, questionDeleted: questionDeleted,
-      remainingInQuestion: questionDeleted ? 0 : others,
-      count: countFavMarkers(out), questions: countQuestionBlocks(out),
+      remainingInQuestion: questionDeleted ? 0 : q.comments.length,
+      count: counts.comments, questions: counts.questions,
     };
   }
 
@@ -2086,7 +2090,7 @@
     const cfg = getWebdavConfig();
     setFavButtonState(btn, 'busy', c, { action: 'remove' });
     // 返回 Promise，便于调用方 / 单测等待整条「读-改-写」事务结束
-    return removeFavoriteFromWebdav(cfg, favMarker(c.id)).then((r) => {
+    return removeFavoriteFromWebdav(cfg, c.id).then((r) => {
       // 远端已无这条记录（文件不存在 / 文件里没有这条）→ 本机标记一并清掉，避免「本机以为已收藏」的假状态
       unmarkFavLocally(c.id);
       setFavButtonState(btn, 'normal', c);
@@ -2349,66 +2353,52 @@
     return out;
   }
 
-  // 把整份收藏文件解析成 [{questionId, marker, label, stem, choices, comments}]
-  function parseFavoritesMarkdown(text) {
+  // v2.9.0：收藏文档解析统一入口（纯函数，无 DOM 依赖，可离线单测）。
+  //  直接解析 JSON 文档，失败则返回空收藏。不再兼容旧 Markdown 文本。
+  // 返回结构：{ questions: [{questionId, label, stem, choices,
+  //                                    comments: [{commentId, time, body}]}],
+  //                    questionCount, commentCount }
+  function parseFavoritesDocument(text) {
     const src = String(text == null ? '' : text);
-    const marks = findQuestionMarkerOffsets(src);
-    const questions = [];
-    for (let i = 0; i < marks.length; i++) {
-      const head = marks[i].head;
-      const tail = marks[i].tail;
-      const end = i + 1 < marks.length ? marks[i + 1].head : src.length;
-      const markerText = src.slice(head, tail);
-      const idMatch = /fcv:question:\s*([^>]*?)\s*-->/.exec(markerText);
-      const q = {
-        questionId: idMatch ? idMatch[1].trim() : '',
-        marker: markerText,
-        label: '',
-        stem: '',
-        choices: [],
-        comments: [],
-      };
-      const lines = src.slice(tail, end).split(/\r?\n/);
-      const stemLines = [];
-      const commentLines = [];
-      let section = '';
-      for (let j = 0; j < lines.length; j++) {
-        const t = String(lines[j] == null ? '' : lines[j]).trim();
-        const lm = q.label ? null : /^##\s+(.+)$/.exec(t);
-        if (lm) { q.label = lm[1].trim(); continue; }
-        if (t === '**题干**') { section = 'stem'; continue; }
-        if (t === '**选项**') { section = 'choices'; continue; }
-        if (t === '**收藏的评论**') { section = 'comments'; continue; }
-        if (section === 'stem') { if (t) stemLines.push(t); continue; }
-        if (section === 'choices') {
-          const cm = /^[-*]\s+(.+)$/.exec(t);
-          if (cm) q.choices.push(cm[1].trim());
-          continue;
+    const trimmed = src.trim();
+    if (trimmed && trimmed.charAt(0) === '{') {
+      try {
+        const obj = JSON.parse(trimmed);
+        if (obj && Array.isArray(obj.questions)) {
+          const questions = obj.questions;
+          let commentCount = 0;
+          for (let i = 0; i < questions.length; i++) {
+            commentCount += (questions[i].comments || []).length;
+          }
+          return { questions: questions, questionCount: questions.length, commentCount: commentCount };
         }
-        if (section === 'comments') commentLines.push(lines[j]);
-      }
-      q.stem = stemLines.join(' ');
-      q.comments = parseFavCommentsFromLines(commentLines);
-      questions.push(q);
+        return { questions: [], questionCount: 0, commentCount: 0 };
+      } catch (e) { /* JSON 解析失败 */ }
     }
-    let commentCount = 0;
-    for (let i = 0; i < questions.length; i++) commentCount += questions[i].comments.length;
-    return { questions: questions, questionCount: questions.length, commentCount: commentCount };
+    return { questions: [], questionCount: 0, commentCount: 0 };
   }
 
-  // 评论优先的扁平视图：每条收藏评论 + 所属题目信息；按收藏时间倒序（无时间 / 同时间保持文件顺序）
+  // v2.9.0：统计收藏文档 / 旧 Markdown 文本里的评论数与题目数（JSON 优先，Markdown 兜底）
+  function countFavoritesInDocument(text) {
+    const parsed = parseFavoritesDocument(text);
+    return { comments: parsed.commentCount, questions: parsed.questionCount };
+  }
+
+  // v2.8.3 遗留：旧 Markdown 解析函数（v2.9.0 纯 JSON，不再兼容旧格式，已停用）
+  function parseFavoritesMarkdown(text) { return { questions: [], questionCount: 0, commentCount: 0 }; }
+  // v2.9.0：把 parsed（纯 JSON 结构）里的评论扁平化为列表，供「收藏的评论」视图渲染
   function collectFavoriteComments(parsed) {
     const flat = [];
     const qs = (parsed && parsed.questions) || [];
     for (let qi = 0; qi < qs.length; qi++) {
       const q = qs[qi];
-      const cs = q.comments || [];
+      const cs = (q && q.comments) || [];
       for (let ci = 0; ci < cs.length; ci++) {
+        const c = cs[ci];
         flat.push({
-          commentId: cs[ci].commentId,
-          marker: cs[ci].marker,
-          time: cs[ci].time,
-          body: cs[ci].body,
+          commentId: c.commentId,
+          time: c.time,
+          body: c.body,
           questionId: q.questionId,
           label: q.label,
           stem: q.stem,
@@ -2418,13 +2408,12 @@
         });
       }
     }
+    // 有收藏时间的按时间倒序（新收藏在前），无时间或同时间的保持文件内顺序
     flat.sort((a, b) => {
-      const ta = String(a.time || '');
-      const tb = String(b.time || '');
-      if (ta === tb) return a.order - b.order;
-      if (!ta) return 1;
-      if (!tb) return -1;
-      return ta < tb ? 1 : -1;      // 「YYYY-MM-DD HH:mm:ss」同格式，可直接字符串比较
+      const ta = a.time || '';
+      const tb = b.time || '';
+      if (ta && tb && ta !== tb) return ta < tb ? 1 : -1;
+      return a.order - b.order;
     });
     return flat;
   }
@@ -2546,7 +2535,7 @@
       m.favLoading = false;
       m.favError = '';
       m.favFileExists = !!(res && res.exists);
-      m.favParsed = parseFavoritesMarkdown(res && res.exists ? res.content : '');
+      m.favParsed = parseFavoritesDocument(res && res.exists ? res.content : '');
       renderFavoritesPanel(m);
     }).catch((e) => {
       logWarn('读取远端收藏失败', e);
@@ -2562,7 +2551,7 @@
     if (m.isClose() || m.favLoading) return;
     if (m.favNeedsConfig) { renderFavoritesNeedConfig(m); return; }
     if (m.favError) { renderFavoritesError(m); return; }
-    const parsed = m.favParsed || parseFavoritesMarkdown('');
+    const parsed = m.favParsed || parseFavoritesDocument('');
     if (parsed.commentCount === 0 && parsed.questionCount === 0) { renderFavoritesEmpty(m, parsed); return; }
     const list = document.createElement('div');
     list.className = 'fcv-fav-list';
@@ -2866,7 +2855,7 @@
     btn.classList.remove('fcv-fav-del--confirm');
     btn.textContent = '删除中';
     logInfo('从收藏列表删除评论', 'commentId=' + commentId);
-    removeFavoriteFromWebdav(cfg, favMarker(commentId)).then((r) => {
+    removeFavoriteFromWebdav(cfg, commentId).then((r) => {
       unmarkFavLocally(commentId);
       if (r && r.noFile) showToast('远端收藏文件不存在，已清除本机的「已收藏」标记', { type: 'info', duration: 4000 });
       else if (r && r.noComment) showToast('远端文件里已没有这条收藏，列表已刷新', { type: 'info', duration: 4000 });
@@ -4480,37 +4469,37 @@
           settings: openWebdavSettings,
           favorites: () => Array.from(getFavIdSet()),
           // v2.5.0：按题目聚合的格式自查入口
-          //  mergeFavorite(existingText, item)  用假数据演练「并入该题区块 / 新建区块 / 判重」三种结果
-          //  countQuestionBlocks(text)          统计文本里的题目区块数
+          //  mergeFavorite(existingText, item)  用假数据演练「并入该题 / 新建题 / 判重」三种结果（纯 JSON 文档）
+          //  countQuestionBlocks(text)          统计文本里的题目区块数（旧 Markdown 格式兼容）
           //  buildQuestionId(index, episodeId)  查看某题的聚合键（题目 ID）
           //  extractQuestionMeta(index)         从该题题卡 DOM 现场取题干 / 选项，验证取材是否成功
           // v2.5.1：选项字母解析自查入口
           //  parseChoiceText(text)              解析「A 举棋不定 / B. xxx /（C）xxx」等前缀，返回 { letter, text }
-          mergeFavorite: (existingText, item) => mergeFavoriteIntoMarkdown(existingText, item),
+          mergeFavorite: (existingText, item) => mergeFavoriteIntoDocument(existingText, item),
           countQuestionBlocks: (text) => countQuestionBlocks(text),
           buildQuestionId: (index, episodeId) => buildQuestionId(index, episodeId),
           extractQuestionMeta: (index) => extractQuestionMetaFromCard(resolveQuestionCard(index)),
           parseChoiceText: (text) => parseChoiceText(text),
           // v2.6.5：取消收藏自查入口
-          //  removeFavorite(existingText, commentMarker)  演练「摘掉一条评论 / 该题无其它收藏则整块删题」两种结果
-          //  favMarker(commentId)                         生成某条评论的隐藏标记（与远端文件里的标记一致）
-          removeFavorite: (existingText, commentMarker) => removeFavoriteFromMarkdown(existingText, commentMarker),
+          //  removeFavorite(existingText, commentId)  演练「摘掉一条评论 / 该题无其它收藏则整题删除」两种结果
+          //  favMarker(commentId)                     生成旧 Markdown 格式的评论隐藏标记（仅旧格式兼容自查用）
+          removeFavorite: (existingText, commentId) => removeFavoriteFromDocument(existingText, commentId),
           favMarker: (commentId) => favMarker(commentId),
           // v2.7.0：「我的收藏」自查 / 手动管理入口
-          //  parseFavorites(text)         把一段收藏 Markdown 解析成 {questions, questionCount, commentCount}
+          //  parseFavorites(text)         把一段收藏文档（纯 JSON 文档）解析成 {questions, questionCount, commentCount}
           //  listFavorites()              读取远端收藏文件并返回解析结果（不打开面板）
           //  openFavorites()              打开「我的收藏」面板
           //  deleteFavorite(commentId)    直接删掉远端文件里的某条收藏（与面板删除同一链路）
-          parseFavorites: (text) => parseFavoritesMarkdown(text),
+          parseFavorites: (text) => parseFavoritesDocument(text),
           listFavorites: () => webdavGetFile(getWebdavConfig()).then((res) => ({
             exists: !!res.exists,
             filePath: (getWebdavConfig().filePath || DEFAULT_WEBDAV_FILE),
-            parsed: parseFavoritesMarkdown(res.exists ? res.content : ''),
+            parsed: parseFavoritesDocument(res.exists ? res.content : ''),
           })),
           openFavorites: () => onDomReady(openFavoritesPanel),
           deleteFavorite: (commentId) => {
             if (!isWebdavConfigured()) return Promise.reject(new Error('尚未配置 WebDAV'));
-            return removeFavoriteFromWebdav(getWebdavConfig(), favMarker(commentId)).then((r) => {
+            return removeFavoriteFromWebdav(getWebdavConfig(), commentId).then((r) => {
               unmarkFavLocally(commentId);
               if (isFavoritesPanelOpen()) reloadFavorites(favPanelRef);
               return r;

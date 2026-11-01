@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         粉笔题库一键排版打印（可自选题目导出）
 // @namespace    http://tampermonkey.net/
-// @version      70.76
+// @version      70.77
 // @description  粉笔网试卷一键排版打印，支持标准封面、自定义页边距、字体与分页策略
 // @author       Gdz
 // @match        *://spa.fenbi.com/*
@@ -278,6 +278,7 @@ const PLUGIN_VERSION = (typeof GM_info !== 'undefined' && GM_info && GM_info.scr
                     <option value="kaiti">楷体</option>
                     <option value="shserif-regular">思源宋体-常规</option>
                     <option value="shserif-medium">思源宋体-中等</option>
+                    <option value="fzshusong">方正书宋</option>
                 </select>
             </div>
             <div class="tm-field">
@@ -2087,6 +2088,7 @@ const PLUGIN_VERSION = (typeof GM_info !== 'undefined' && GM_info && GM_info.scr
             // 思源宋体：macOS 上 7 个字重各自是独立字体族，必须用对应族名才能体现字重差异，不能统一回退
             'shserif-regular': '"Source Han Serif SC","思源宋体",serif',
             'shserif-medium': '"Source Han Serif SC Medium","思源宋体 Medium",serif',
+            'fzshusong': '"FZShuSong-Z01","方正书宋_GBK","方正书宋简体",serif',
         };
         // 思源宋体 Bold 不再出现在面板中，无需额外 font-weight 映射
         const FONT_WEIGHT_MAP = {};

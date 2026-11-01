@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         粉笔一页成卷
 // @namespace    marvis/fenbi-inpage-typeset
-// @version      1.1.1
+// @version      1.1.4
 // @description  在粉笔网页版题目页就地套用《粉笔试卷排版打印》的版式：宋体（默认字号 24px / 行高 1.6，均在面板上用 −/＋ 加减调整）（本机宋体优先，安卓平板/iPad 缺宋体时自动联网补思源宋体，可关）、题干首行缩进 2em 与段间距 0.5em、题号悬挂缩进（固定 2em）、选项 flex 排布（列数默认自动，可切 1/2/4 列；列距 18px、行距 0.5em、上距 0.3em）、图片限幅（题干 max-width 100%、选项 140x100）、表格规则、题间距（默认 18px，面板用 −/＋ 调整）。只调样式：不打印、不生成 A4、不浮层、不改动题目文本与原有交互。
 // @author       Marvis File Agent
 // @match        *://spa.fenbi.com/*
@@ -475,6 +475,26 @@
         /* 去底后字母改随正文色；对错态按粉笔语义还原：
            .correct=选对、.correctLost=正确答案但未选（绿）；.wrong=选错（红） */
         '[data-fp-ts] .fp-ts-opt .fp-ts-ol{ color:inherit!important; }',
+        /* 做题模式「已选」态：整行高亮，字母盒 + 选项正文统一深蓝 #1d4ed8。
+           上面那条 color:inherit!important 会连带压掉原生靠状态类给字母盒上的蓝色，
+           所以这里显式补回来。选中态类名粉笔各版本不一，用 :has 一次覆盖三种来源：
+             ① 选项行/其内标签带 active / selected / checked 类；
+             ② 行内原生 radio 处于 :checked（input 被 display:none 不影响 :checked 判定）；
+             ③ 字母盒自身被打了状态类或 aria。
+           着色两级：行本身管「继承色文字」，行内所有后代再兜一层 !important，
+           防止选项正文的子元素自带 color 规则导致「字母蓝、正文黑」的半吊子效果。
+           :where() 把特异性压到 (0,3,0)，低于下面判分红绿规则的 (0,4,0)；
+           再用 :where(:not(.correct,.correctLost,.wrong)) 把「已判分」的行整条排除
+           （:not 包进 :where 后不贡献特异性），交卷后的绿/红既不会被深蓝盖掉，
+           也不会被行级 color 影响正文。 */
+        '[data-fp-ts] .fp-ts-opt:where(.active,.selected,.checked,:has(input:checked,.active,.selected,.checked),[aria-selected="true"],[aria-checked="true"]):where(:not(.correct,.correctLost,.wrong)),',
+        '[data-fp-ts] .fp-ts-opt:where(.active,.selected,.checked,:has(input:checked,.active,.selected,.checked),[aria-selected="true"],[aria-checked="true"]):where(:not(.correct,.correctLost,.wrong)) *{',
+        '  color:#1d4ed8!important;',
+        '}',
+        /* 状态类只落在字母盒本身（行上没有任何标记）时的兜底：同样深蓝 */
+        '[data-fp-ts] .fp-ts-opt .fp-ts-ol:where(.active,.selected,.checked,[aria-selected="true"],[aria-checked="true"]){',
+        '  color:#1d4ed8!important;',
+        '}',
         '[data-fp-ts] .fp-ts-opt .fp-ts-ol.correct,',
         '[data-fp-ts] .fp-ts-opt .fp-ts-ol.correctLost{ color:#16a34a!important; }',
         '[data-fp-ts] .fp-ts-opt .fp-ts-ol.wrong{ color:#dc2626!important; }',
@@ -1576,10 +1596,10 @@
 
     function buildPanel() {
         if (panel) return;
-        panel = el('div', { id: PANEL_ID });
+        panel = el('div', { id: PANEL_ID, 'class': 'fp-ts-collapsed' });
 
         var fold = el('button', {
-            'class': 'fp-ts-fold', type: 'button', text: '\u2212',
+            'class': 'fp-ts-fold', type: 'button', text: '+',
             onmousedown: function (e) { e.stopPropagation(); },
             onclick: function () {
                 panel.classList.toggle('fp-ts-collapsed');

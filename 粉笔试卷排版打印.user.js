@@ -3444,4 +3444,2552 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
         if (a.hang) st.q.style.setProperty('--hang', a.hang);
         if (a.ohang) st.q.style.setProperty('--ohang', a.ohang);
         body.appendChild(st.q);
-        st.qid = a.qid; st.stem = null; st.opts = nul
+        st.qid = a.qid; st.stem = null; st.opts = null;
+      }
+      host = st.q;
+      if (a.slot === 'stem'){
+        if (!st.stem || st.stem.parentNode !== st.q){
+          st.stem = document.createElement('div');
+          st.stem.className = 'fp-stem';
+          st.q.appendChild(st.stem);
+        }
+        host = st.stem;
+      } else if (a.slot === 'opt'){
+        if (!st.opts || st.opts.className.indexOf(a.grid) < 0 || st.opts.parentNode !== st.q){
+          st.opts = document.createElement('div');
+          st.opts.className = 'fp-opts ' + a.grid;
+          st.q.appendChild(st.opts);
+        }
+        host = st.opts;
+      }
+    }
+    host.appendChild(a.node);
+  }
+
+  // 可沿行边界撕开的纯文本节点（不含表格/图片/公式等不能腰斩的元素）
+  // 可沿行边界撕开的纯文本节点（不含表格/图片/公式等不能腰斩的元素）
+  function canSplitNode(node){
+    if (!node || !/^(P|DIV|SPAN|SECTION|ARTICLE|BLOCKQUOTE|CENTER|APP-FORMAT-HTML)$/i.test(node.tagName)) return false;
+    // 极致省纸允许「纯文本长选项」从行边界撕开：只影响单独成行的选项（grid-1 那种），
+    // 一行多选项（grid-2/4）因 cut 里按「行」成块、且撕开仅在单原子块触发，仍整行走，不会变 3+1。
+    if (node.classList.contains('fp-opt') && MODE !== 'ultra') return false;
+    return !node.querySelector('img,table,svg,canvas,iframe,object,embed,math');
+  }
+
+  // 把一段长文字从「剩余高度」处按行边界真实切成两段：
+  // first 含顶部前 N 行（带题号、保留内联结构），rest 含第 N+1 行起的剩余文本。
+  //
+  // 这一版之前踩过两次坑，都值得记下来：
+  //  1) 最早用「克隆整段 + 负 margin 续接」：rest 是完整克隆，靠负 margin 把上半截
+  //     藏起来，一旦没被父容器精确裁掉，前 N 行就原样露出 —— 题目文本重复
+  //     （Q4、Q64 复现过）。
+  //  2) 为修 1) 改成 textContent 按字符重建：不重复了，但会把题干里的下划线填空
+  //     <u><span class="fp-ul"></span></u> 整个抹掉。为了不丢结构，又加了
+  //     extraEls>0 守卫「含内联元素就不拆」，结果言语理解这类含下划线的长题干
+  //     在页尾一律整段翻页，页尾留下大段空白（用户反馈「还剩五行的留白」）。
+  //
+  // 现在改用 Range 按行边界定位切点 + cloneContents()：内联结构原样保留，
+  // 既不会丢下划线，也不再需要那道一刀切的守卫，含 <u> 的段落照样能续排。
+  function splitTextAtom(atom, remain){
+    var node = atom.node;
+    if (!canSplitNode(node)) return null;
+    var cs = window.getComputedStyle(node);
+    var lh = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 16) * 1.6;
+    if (!(lh > 0)) return null;
+    // ⚠️⚠️ 1.8.25 关键修正（问题4「丢字」的最后一环）⚠️⚠️
+    //
+    // 旧写法：var h = Math.floor(lines * lh);
+    //   行高在真机上实测是 **25.6px**（字号 16 × 行距 1.6），不是整数。
+    //   取 floor 之后：
+    //     lines=1 → Math.floor(25.6) = 25px，而一行真实要 25.59px —— **少 0.59px**
+    //     lines=2 → Math.floor(51.2) = 51px，而两行真实要 51.19px —— **少 0.19px**
+    //   first 段随后被设成 max-height:h + overflow:hidden，
+    //   于是「25px 的盒子硬塞 25.59px 的内容」——溢出的 0.59px 正是**最后一行字**，
+    //   被 overflow:hidden 裁掉。用户看到的就是丢字：
+    //     「就没有后面的显山露水」→「就没有后面的显山」（丢「露」）
+    //   真机实测证据：28 题壳1 max-height:25px、自然高度 25.59px、scrollHeight 26px、溢出 1px。
+    //
+    //   ⚠️ 为什么前面几版都在别处白改：
+    //     这个 0.59px 太小了，肉眼看「25 和 25.6 差不多」，容易当成舍入噪声。
+    //     但它刚好等于「一行文字」的裁切边界 —— 少一点点就切掉一整行字的底部。
+    //     真机 6 处撕开里只有 28 题丢字，正是因为只有它落在「1 行」这一档：
+    //     2 行档少 0.19px、3 行档少 0.4px 都在安全区（行距空隙能吸收），
+    //     唯独 1 行档的 0.59px 越过了字形下沿。
+    //
+    // 修法：不取整。CSS 的 max-height 完全支持小数，直接给精确的 lines*lh，
+    //       让盒子高度和内容高度严格相等，溢出一律归零。
+    //       同时留 0.1px 的向上余量：浏览器对行高做亚像素折算时可能多出
+    //       零点零几像素，这点余量能吃掉它，而 0.1px 肉眼绝无影响。
+    var lines = Math.max(1, Math.floor(remain / lh));
+    var h = Math.round((lines * lh + 0.1) * 100) / 100;
+
+    // ⚠️⚠️ 1.8.26 关键约束（问题4「题号消失」的直接原因）⚠️⚠️
+    //
+    // 首段（.fp-first）里有一个 **float:left 的题号** <span class="fp-num">28.</span>，
+    // 它不属于正常流 —— 它自己就占掉一段垂直空间。真机实测（16px 字号的题号）：
+    //     num.rect.top    = p.top           （题号从段落顶边开始）
+    //     num.rect.bottom = p.top + 25.59   （题号高 = 一个完整行高）
+    //     正文第一个字的 rect.top 与题号相同（首行并排）
+    //     但一旦本行放不下，正文会**绕到题号下方**，整个下移一行。
+    //
+    // 于是 h 只有「1 行」（25.7px）时会出现两种坏结果：
+    //   · 若正文能被挤到第 2 行 → 第 2 行被 overflow:hidden 裁掉（丢字）
+    //   · 若切点退回 0 → 首段只剩题号，正文全归续段
+    //     → 用户看到**题号孤零零没有正文**，视觉上就是「题号消失了」
+    //
+    // 真机证据（用户上传的 1.8.25 DOM + 截图）：
+    //     q28 壳1 max-height:25.7px / 文本 39 字
+    //     findLineCut 在同一环境给出的正确切点是 38 字（38 字 = 1.00 行，正好装下）
+    //     39 字 = 2.00 行（最后一个 rect 底边 46.59px）→ 被裁
+    //     截图上第 8 页只剩「任何事业的成功…就没有后面的显」，题号 28. 不见踪影
+    //
+    // 修法：首段至少要留「题号占的一行」+「至少一行正文」。
+    // 题号是否独占首行，取决于本行剩余宽度 —— 这里用一个保守但安全的判据：
+    //   首段文本里含 .fp-num 时，把可用高度下限提到 2 行。
+    // 代价是页尾可能少撕一行（多留白一行），收益是**绝不丢字、绝不出现无题号孤岛**。
+    // 这个交换对用户有利：留白能接受，丢字不能。
+    var needLines = lines;
+    try {
+      if (lines < 2){
+        // 看原子是不是「首段且带题号」：带 .fp-num 且是段落第一个元素
+        var hasNum = false;
+        if (node.nodeType === 1){
+          var fn = node.firstElementChild;
+          hasNum = !!(fn && fn.classList && fn.classList.contains('fp-num'));
+          if (!hasNum) hasNum = !!node.querySelector('.fp-num');
+        }
+        if (hasNum) needLines = 2;
+      }
+    } catch (e){}
+    if (needLines > lines){
+      // 可用高度不够两行 → 这一段不值得撕（撕了首段也放不下题号+正文），
+      // 直接让上层走「整段翻页」，别在这里制造一个残缺的首段。
+      if (remain < needLines * lh) return null;
+      lines = needLines;
+      h = Math.round((lines * lh + 0.1) * 100) / 100;
+    }
+
+    // 拆得太少或几乎整段都能放下，就不拆了
+    // 极致省纸把下限压到约 1 行（14px），让页尾剩 1~2 行空位时也能把长段撕开填缝；
+    // 智能平衡保持 24px（约 1.4 行）下限，避免过度碎裂。
+    var MINH = (MODE === 'ultra') ? 14 : 24;
+    if (h < MINH || h >= atom.h - 16) return null;
+
+    // ============================================================================
+    // ⚠️⚠️⚠️ 1.8.26 终极修正（问题4「丢字 / 题号消失」，第 5 次也是最后一次）⚠️⚠️⚠️
+    // ============================================================================
+    //
+    // ★ 血泪史：这个 bug 修了四次都没修对，全因为**在猜宽度**。这次一个字都不猜。
+    //
+    // ---- 前四次的错误路径（写在这里，防止再走一遍）----
+    //   v1 用 #fp-flow.clientWidth（703）＝ 忘了减 .fp-stem 的 padding        → 宽度偏大
+    //   v2 补上 padding-left，但从「任意一个 .fp-stem」上读                → 逐题不同，可能偏
+    //   v3 改从「本节点的祖先 .fp-stem」上读                              → 看着对，实测仍错
+    //   v4 加「装得下」断言兜底                                          → 断言条件写错，没跑
+    //
+    // ---- 真机实测数据（用用户上传的 1.8.25 完整 DOM + 脚本自己的 CSS）----
+    //   真实 .fp-stem 的内容宽有**三种**（按题号宽度分档）：
+    //     {637px: 22 处, 645px: 98 处, 653px: 9 处}
+    //   而 #fp-flow.clientWidth = 680、.fp-page.clientWidth = 794、.fp-pbody = 673。
+    //   → **三个候选宽度都不是真值**，任何「挑一个」的做法都必然有偏差。
+    //
+    //   同一个「39 字」的文本在不同宽度下的行数（真机实测）：
+    //     width=794 不补 padL → 1 行  ← 1.8.25 真机就是这个结果
+    //     width=794 + padL=28 → 2 行
+    //     width=673 + padL=28 → 2 行
+    //
+    //   真机 q28 的实测几何（16px / 行高 25.6px）：
+    //     first 段（39 字）最后一个字形底边 = 46.59px，而 max-height 只有 25.7px
+    //     → overflow:hidden 把第二行整行裁掉 → 「显山露水」变成「显」之后断掉
+    //     而 findLineCut 在同一环境给出的正确切点是 38 字（38 字 = 25.59px，正好 1 行）
+    //
+    // ---- 正确做法：**把节点放进真实页面结构里量**，让浏览器自己算宽度 ----
+    //
+    //   关键洞察：cut() 里 unplace() 用的是 removeChild，**节点的 parentNode
+    //   仍指向原来那个 .fp-stem** —— 而那个壳虽然在文档外，却带着完整的
+    //   inline --hang、以及从祖先继承下来的所有样式。把它整条祖先链克隆一份挂进
+    //   真实的 .fp-page 结构里，宽度就**自动**等于真实值，不需要任何人为计算。
+    //
+    //   所以这里做的不是「猜宽度」，而是「**把节点的真实排版环境整体搬过来**」。
+    // ============================================================================
+    var detached = !node.ownerDocument || !node.ownerDocument.body.contains(node);
+    var measHost = null, measStem = null, measBody = null;
+
+    // ① 找节点原来的 .fp-stem 祖先（unplace 后 parentNode 仍指着它）
+    var protoStem = null;
+    try {
+      var own = node.parentNode;
+      while (own && own.nodeType === 1 && !(own.classList && own.classList.contains('fp-stem'))){
+        own = own.parentNode;
+      }
+      if (own && own.classList && own.classList.contains('fp-stem')) protoStem = own;
+    } catch (e){}
+    // 退化：从页面上任意一个真实壳取模板。
+    // ⚠️ 这里**只用来取「结构模板」**（.fp-stem 的 padding 等样式口径），
+    //    缩进本身由 atom.hang 单独写回，所以即使命中别的题也不会影响宽度 ——
+    //    1.8.26 起不再为此告警（1.8.25 那条「缩进可能不符」的警告是误报，已删）。
+    if (!protoStem){
+      try {
+        protoStem = document.querySelector('#fp-pages .fp-stem') || document.querySelector('.fp-stem');
+      } catch (e){}
+    }
+
+    if (detached || !measHost){
+      try {
+        // ② 把「真实页面容器」克隆一份当测量位：.fp-page > .fp-pbody
+        //    宽度天然等于真实内容区宽，不需要任何数字
+        var realPage = document.querySelector('#fp-pages .fp-page') || document.querySelector('.fp-page');
+        if (realPage){
+          var pageShell = realPage.cloneNode(false);   // .fp-page（带它的 width/padding）
+          var pbodyShell = document.createElement('div');
+          pbodyShell.className = 'fp-pbody';
+          pageShell.appendChild(pbodyShell);
+          measHost = pageShell;
+          measBody = pbodyShell;
+        } else {
+          // 连页面壳都没有（极端兜底）：用 flow 宽度
+          var flowEl = document.getElementById('fp-flow');
+          var flowW = flowEl && flowEl.clientWidth ? flowEl.clientWidth : 703;
+          measHost = document.createElement('div');
+          measHost.style.cssText = 'width:' + flowW + 'px';
+          measBody = measHost;
+        }
+        // ③ 在测量位里重建「.fp-q > .fp-stem」两层壳：
+        //    --hang 从原壳/原子取，其余样式由 CSS 继承 → 宽度与真实一致
+        var qShell = document.createElement('div');
+        qShell.className = 'fp-q';
+        var hangVal = atom.hang || '';
+        if (!hangVal && protoStem){
+          try { hangVal = protoStem.parentNode.style.getPropertyValue('--hang') || ''; } catch (e){}
+        }
+        if (hangVal) qShell.style.setProperty('--hang', hangVal);
+        if (atom.ohang) qShell.style.setProperty('--ohang', atom.ohang);
+        else if (hangVal) qShell.style.setProperty('--ohang', hangVal);
+        var stemShell = document.createElement('div');
+        stemShell.className = 'fp-stem';
+        qShell.appendChild(stemShell);
+        measBody.appendChild(qShell);
+        measStem = stemShell;
+        // 测量位整体移出视口、隐藏，但不改宽度（改了宽度就白测了）
+        measHost.style.position = 'absolute';
+        measHost.style.left = '-99999px';
+        measHost.style.top = '0';
+        measHost.style.visibility = 'hidden';
+        document.body.appendChild(measHost);
+      } catch (e){
+        measHost = null; measStem = null;
+      }
+    }
+
+    // ④ 万一测量位没建成，且节点游离 —— 至少挂回文档，否则 rect 恒为 0
+    if (!measHost && detached){
+      measHost = document.createElement('div');
+      measHost.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden';
+      measHost.appendChild(node);
+      document.body.appendChild(measHost);
+      measStem = measHost;
+    }
+    // ⑤ 把节点放进测量壳（不是直接放进 measHost —— 那样会丢掉 .fp-stem 的缩进）
+    if (measStem && node.parentNode !== measStem) measStem.appendChild(node);
+
+    var cutRes = findLineCut(node, h);
+    var parts = null;
+    if (cutRes){
+      var first = node.cloneNode(false);
+      var rest = node.cloneNode(false);
+      var r1 = document.createRange();
+      r1.setStart(node, 0); r1.setEnd(cutRes.node, cutRes.offset);
+      first.appendChild(r1.cloneContents());
+      var r2 = document.createRange();
+      r2.setStart(cutRes.node, cutRes.offset); r2.setEnd(node, node.childNodes.length);
+      rest.appendChild(r2.cloneContents());
+      // ⚠️ 1.8.25 产品决定：**续排段不再重复题号**。
+      //
+      // 1.8.9 起，题干被撕开时会把题号 <span class="fp-num"> 克隆一份插到续排段开头，
+      // 目的是让下一页的题干也带「28.」。但真机用下来代价比收益大：
+      //   · 同一道题在两页各印一次题号，翻页时看着像「两道题」；
+      //   · 1.8.24 为了让克隆题号跟住段首，还专门加了 insertBefore 逻辑，
+      //     反而引出「题号跑到第二页、没跟在段首前面」这一组新问题。
+      // 用户拍板：续排段就当成正文的自然延续，不印题号 ——
+      // 页面右上/页首本来就有页码和题目区间提示，定位不会丢。
+      // 所以这里**整段删掉**题号克隆，rest 保持 cloneContents 的原始内容。
+      //
+      // 注意：first 段里的题号仍然保留（原样 cloneContents 带过来的），
+      // 也就是「题号只在本道题首次出现的那一页出现一次」，这正是想要的效果。
+      //
+      // ---- 字符守恒断言（1.8.24 新增）----
+      // 切点若落在内联元素边界处，Range.cloneContents 理论上是守恒的
+      // （已用 79 组边界场景实测验证），但**不能只靠理论** ——
+      // 旧代码只校验「两段都非空」（fl && rl），一旦真丢了内容是**静默**的，
+      // 用户只会看到「显山露 ↓ 水」这种断字，无从排查。
+      // 这里改成逐字符守恒校验：首段正文 + 续段正文，必须与原文正文逐字相同；
+      // 不成立就 return null —— 宁可不撕（整段翻页留点白），也绝不丢字。
+      var flat = function(el){ return el.textContent.replace(/[\s　]/g, ''); };
+      // ⚠️ 空壳清理：切点有可能落在题号 <span class="fp-num"> 内部（h 很小的时候），
+      // 此时 cloneContents 会在 rest 里留下一个**空**的 .fp-num 外壳 ——
+      // 它没有文字，肉眼看不见，但会在续段行首占住一个右外边距（margin-right:.5em），
+      // 表现成「续排段第一行莫名缩进一点」。既然决定续段不印题号，这种空壳一并摘掉。
+      // 同理清掉任何空的 .fp-num（首段里也可能残留）。
+      (function(){
+        var shells = rest.querySelectorAll('.fp-num');
+        for (var si = 0; si < shells.length; si++){
+          if (!shells[si].textContent.replace(/[\s　]/g, '')) shells[si].parentNode.removeChild(shells[si]);
+        }
+      })();
+      // 不再有题号克隆，first 与 rest 首尾相接就等于整段原文，
+      // 所以直接三段互等即可（1.8.25 简化：删掉了 numTxt / cutHead 那套去头逻辑）。
+      // ⚠️ 注意：上面清掉的空 .fp-num 不含任何字符，不影响 textContent 守恒。
+      var origTxt = flat(node);                  // 原文
+      var firstTxt = flat(first);                // 首段（含题号）
+      var restTxt = flat(rest);                  // 续段（纯正文）
+      var ok = (firstTxt + restTxt) === origTxt;
+      parts = (ok && firstTxt && restTxt) ? { first: first, rest: rest, h: h } : null;
+      if (!ok){
+        // 守恒失败：退回整段（不撕），并在控制台留痕便于真机排查
+        try {
+          console.warn('[试卷排版] 撕开校验未通过，已退回整段。'
+            + '首段=' + firstTxt.length + '字 续段=' + restTxt.length
+            + '字 原文=' + origTxt.length + '字');
+        } catch (e){}
+      }
+
+      // ---- 「装得下」断言（1.8.25 新增；1.8.26 改成**无条件执行 + 几何判定 + 自愈**）----
+      //
+      // 逐字符守恒只保证「字都在 DOM 里」，**保证不了字看得见**。
+      // first 段会被设成 max-height:h + overflow:hidden，只要内容比 h 高出**一整行**，
+      // 最后一行就会被裁掉 —— 字还在 DOM、守恒校验也通过，但用户看不见，
+      // 外观上就是丢字。
+      //
+      // ⚠️ 真机实测（1.8.25 输出，用户上传的完整 DOM）：
+      //     q28 壳1: max-height:25.7px, 文本 39 字
+      //              「28.任何事业的成功…就没有后面的显山」
+      //     而 findLineCut 在同一环境给出的正确切点是 **38 字**
+      //              「28.任何事业的成功…就没有后面的显」
+      //     38 字 → rectH=25.59px（1 行，装得下 ✅）
+      //     39 字 → 最后一行 rect 的底边 = 46.59px（2 行，装不下 ❌）
+      //     差的就是最后的「山」—— 用户在截图上看到「显」之后断掉、题号看着像丢了。
+      //
+      // ⚠️ 两个必须做对的地方：
+      //
+      //   ① **不能用 scrollHeight 判**。
+      //      first 段里有 float:left 的题号，.fp-stem 又是 display:flow-root
+      //      （建立 BFC 包住浮动），scrollHeight 会把浮动盒子算进溢出区，
+      //      给出偏大的值，把「其实装得下」的情况误判成装不下。
+      //      这里改用 **Range.getClientRects() 的最后一个矩形底边** —— 和
+      //      findLineCut 量高度用的是同一套几何，口径天然一致，
+      //      也正好是 max-height/overflow 实际裁切的那条线。
+      //
+      //   ② **断言不能有条件**。
+      //      1.8.25 写成 if (parts && measHost)，而 measHost 只在节点游离时才建，
+      //      于是只要节点还在文档里，整块断言被静默跳过 —— 这正是它没拦住 bug 的原因。
+      //      现在无条件执行，自己保证测量位存在。
+      //
+      // ⚠️ 容差 1px：h 已是精确的 lines*lh + 0.1，残差只来自亚像素折算（<0.5px）。
+      //    1px 放得下这点噪声，又不给「少一整行字」留口子。
+      var OVER_TOL = 1;
+      var firstRowInfo = null;   // 首段「行数 / 末行字符数」，摘探针前量好，供下面判断是否 justify
+      if (parts){
+        var probe = parts.first;
+        // ⚠️ 关键：断言必须用**和最终放置环境完全一致**的容器（measStem = .fp-stem 壳），
+        //    不能用 measHost（它是 .fp-page，宽度比 .fp-stem 内容区大出 --hang 那一截）。
+        //    这一条是 1.8.26 实测踩出来的：用 .fp-page 量会把「装不下」误判成「装得下」。
+        var probeHome = measStem || measBody || measHost;
+        try {
+          if (!probeHome){
+            // 没有测量壳：现场造一个「.fp-q > .fp-stem」两级结构，缩进与真实一致
+            var pg2 = document.querySelector('#fp-pages .fp-page') || document.querySelector('.fp-page');
+            var q3 = document.createElement('div');
+            q3.className = 'fp-q';
+            if (atom.hang){ q3.style.setProperty('--hang', atom.hang); }
+            if (atom.ohang){ q3.style.setProperty('--ohang', atom.ohang); }
+            var s3 = document.createElement('div');
+            s3.className = 'fp-stem';
+            q3.appendChild(s3);
+            probeHome = document.createElement('div');
+            probeHome.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden';
+            if (pg2){
+              probeHome.style.width = pg2.clientWidth + 'px';
+              probeHome.style.boxSizing = 'border-box';
+              probeHome.style.paddingLeft = window.getComputedStyle(pg2).paddingLeft;
+              probeHome.style.paddingRight = window.getComputedStyle(pg2).paddingRight;
+            }
+            probeHome.appendChild(q3);
+            measStem = s3;
+            measHost = probeHome;
+            document.body.appendChild(probeHome);
+          }
+          // 量「第一个段落在真实环境里排出来，最后一个字形的底边」离自身顶边多远。
+          // 用 range.getClientRects() —— 与 findLineCut 同源，不受 BFC/浮动影响。
+          var measureFirst = function(el){
+            if (!el.firstChild) return 0;
+            var rng = document.createRange();
+            try { rng.setStart(el, 0); rng.setEnd(el, el.childNodes.length); }
+            catch (e){ return 0; }
+            var rcs = rng.getClientRects();
+            if (!rcs || !rcs.length) return 0;
+            var top = el.getBoundingClientRect().top, mx = -Infinity;
+            for (var qi = 0; qi < rcs.length; qi++){
+              // 忽略零宽矩形（float 塌陷、空行盒会给出 0 宽）
+              if (rcs[qi].width <= 0) continue;
+              var b = rcs[qi].bottom - top;
+              if (b > mx) mx = b;
+            }
+            return mx === -Infinity ? 0 : mx;
+          };
+          probe.style.maxHeight = 'none';
+          probe.style.overflow = 'visible';
+          probeHome.appendChild(probe);
+          var realH = measureFirst(probe);
+          // ---- 自愈：装不下就把切点往前挪，直到装得下 ----
+          //
+          // 与其「装不下就整段翻页（页尾留白）」，不如把切点往前挪几个字 ——
+          // 宁可这一页少放几个字，也绝不让字被裁掉（用户看到的就是丢字）。
+          //
+          // ⚠️ 不能简单地把 textContent 截断：first 段里有 <u><span class="fp-ul"></span></u>
+          //    这样的填空线内联结构，textContent 一赋值就全拍平了，填空题的下划线会消失。
+          //    这里改成**在 probe 上从尾部逐字符删**（Range.deleteContents 保留前面的结构），
+          //    并且把删掉的字符按原样 append 到 rest 的末尾 —— 结构与守恒都保住。
+          //
+          //    实现要点：每删一个字前，先记录「被删区间之前」的字符数，
+          //    删完后用同一个区间数把 rest 补上（rest 是 cloneContents 来的，结构与 first 同源）。
+          if (realH - h > OVER_TOL){
+            var trimmed = 0, maxTrim = Math.ceil(lh * 1.2);   // 最多回退约一行
+            var delRange = null;
+            while (trimmed < maxTrim && realH - h > OVER_TOL && flat(probe).length > 2){
+              // 找 probe 里最后一个文本节点，删掉它的最后一个字符
+              var lastNode = null, wk = document.createTreeWalker(probe, 4, null, false), wn;
+              while ((wn = wk.nextNode())) if (wn.textContent.length) lastNode = wn;
+              if (!lastNode) break;
+              var L = lastNode.textContent.length;
+              if (L <= 0) break;
+              // 记录被删的那个字符（用于补回 rest）
+              var ch = lastNode.textContent.charAt(L - 1);
+              var dr = document.createRange();
+              dr.setStart(lastNode, L - 1); dr.setEnd(lastNode, L);
+              var piece = dr.cloneContents();     // 被删字符（含可能的包裹元素）
+              dr.deleteContents();
+              trimmed++;
+              // 记下这一片，最后统一拼到 rest 前面（保持原顺序：先删的在最前）
+              if (!delRange) delRange = document.createDocumentFragment();
+              delRange.insertBefore(piece, delRange.firstChild);
+              realH = measureFirst(probe);
+            }
+            if (realH - h <= OVER_TOL + 0.5 && flat(probe).length > 1){
+              // 缩字成功：把删掉的那些字接到 rest 最前面，保证一个字都不丢
+              var restNew = rest.cloneNode(false);
+              if (delRange) restNew.appendChild(delRange);
+              while (rest.firstChild) restNew.appendChild(rest.firstChild);
+              // 守恒复核：first(缩字后) + rest(补回头部) 必须逐字等于原文
+              if ((flat(probe) + flat(restNew)) === origTxt){
+                parts = { first: probe, rest: restNew, h: h };
+                try {
+                  console.warn('[试卷排版] 撕开段装不下，已自动回退 ' + trimmed
+                    + ' 字（可用=' + h + 'px 原需=' + realH.toFixed(1) + 'px）');
+                } catch (e){}
+              } else {
+                parts = null;
+              }
+            } else {
+              // 缩字也救不了（比如第一行就超）：整段翻页，宁留白不丢字
+              try {
+                console.warn('[试卷排版] 撕开段装不下且缩字无效，已退回整段。'
+                  + '可用=' + h + 'px 实际=' + realH.toFixed(1) + 'px（容差 ' + OVER_TOL + 'px）');
+              } catch (e){}
+              parts = null;
+            }
+          }
+        } catch (e){}
+        // ⚠️⚠️ 1.8.26：测量「首段末行有几个字」，必须在**摘探针之前**做 ⚠️⚠️
+        //
+        // 为什么不能放到后面（下面设 maxHeight/overflow 的地方）去测：
+        //   本行之后紧跟着 probe.parentNode.removeChild(probe) 会把首段**摘出文档**，
+        //   而游离节点（或被 visibility:hidden 藏起来的节点）用 Range 量出的
+        //   getClientRects() 全是空 —— 于是「末行字数」恒为 0、保险条件永不满足、
+        //   整个修复**静默失效**。1.8.26 初版就是把测量写在后面，实测
+        //   「主脚本写上了 justify = 0 / 84 个场景」，全靠打桩才发现。
+        //
+        // 此时 probe 还在 measStem（.fp-stem 壳）里、参与真实排版，量的就是真值。
+        // maxHeight 还没设——但「切出来的这段内容排成几行」与限不限高无关，提前量不影响结果。
+        //
+        // 用法见下方：只有「首段 ≥ 2 行」且「末行字符数 ≥ 8」才给首段加
+        // text-align-last:justify，把末行也撑满，消掉换页处那个视觉空隙。
+        try {
+          var wkC = document.createTreeWalker(probe, 4, null, false), tnC;
+          var rowTop = -Infinity, cells = [];
+          while ((tnC = wkC.nextNode())){
+            var TC = tnC.textContent;
+            for (var ci = 0; ci < TC.length; ci++){
+              var rgC = document.createRange();
+              try { rgC.setStart(tnC, ci); rgC.setEnd(tnC, ci + 1); } catch (e){ continue; }
+              var rcC = rgC.getClientRects();
+              if (!rcC || !rcC.length || rcC[0].width <= 0) continue;
+              if (rcC[0].top > rowTop) rowTop = rcC[0].top;
+              cells.push(rcC[0].top);
+            }
+          }
+          if (rowTop !== -Infinity && cells.length){
+            var probeH = probe.getBoundingClientRect().height;
+            var nRowsP = Math.max(1, Math.round(probeH / lh));
+            var lastChars = 0;
+            for (var cj = 0; cj < cells.length; cj++){
+              if (cells[cj] >= rowTop - lh * 0.5) lastChars++;
+            }
+            firstRowInfo = { nRows: nRowsP, lastChars: lastChars };
+          }
+        } catch (e){ firstRowInfo = null; }
+        // 量完把探针摘掉（parts.first 可能是 probe 本体，也可能已被换掉，两者都清）
+        if (probe && probe.parentNode) probe.parentNode.removeChild(probe);
+      }
+    }
+    if (parts){
+      parts.first.style.maxHeight = h + 'px';
+      // ⚠️⚠️ 1.8.26 修复：题号消失（43 题）⚠️⚠️
+      //
+      // 症状：某道题被撕开、首段落在页尾时，首段里的题号 <span class="fp-num">43.</span>
+      //       在 DOM 里明明存在（textContent 守恒校验也通过），但屏幕/打印上都看不见。
+      //
+      // 根因（chromium 实测定位）：
+      //   .fp-stem  有 padding-left:var(--hang)  → 正文从内容盒 +28px 处开始
+      //   .fp-num   有 float:left; margin-left:-1.75em  → 题号被**拉回 padding 区**，
+      //             它的 left 落在段落**内容盒左边界之外** 28px 处
+      //   这是悬挂缩进的设计意图（题号突出在外，正文各行对齐）。
+      //   但首段为了裁掉多余的行被设了 overflow:hidden —— 而 overflow:hidden 是
+      //   **无差别**裁切：它把超出内容盒的一切都切掉，包括**故意放在 padding 区的题号**。
+      //   实测：P.fp-first 内容盒 left=187.84，题号 left=159.84，相差正好 28px(=hang)，
+      //         elementFromPoint 命中父级 .fp-stem 而非题号 → 题号被裁。
+      //
+      // 为什么 1 行时不发作：lines<2 时有 needLines=2 的保护会直接 return null
+      //   （整段翻页，不撕），压根不产生这种裁切首段。
+      //   2 行是「保护盲区」——躲过了 lines<2，又足以让 overflow:hidden 生效。
+      //
+      // 修法：改用 clip-path 显式指定裁切矩形，**左右各外扩一个 hang 宽度**，
+      //   让题号露出来，上下边界维持 max-height 的裁切能力。
+      //   实测对比（chromium）：
+      //     overflow:hidden              题号不可见 ✗  多余行裁掉 ✓
+      //     overflow:visible             题号可见   ✓  多余行裁不掉 ✗（丢字，绝对不行）
+      //     clip-path:inset(0 -28px ...) 题号可见   ✓  多余行裁掉 ✓  ← 采用
+      //   1.25em~2.5em 各档 hang 实测均成立。
+      //
+      // 为什么不动 padding：.fp-stem 的 padding 参与高度计算，改了会让分页器量到的
+      //   页高和实际布局对不上（见 .fp-stem 处的注释），只能从裁切方式上解。
+      // ⚠️ --hang 定义在 .fp-q 上，**不是** .fp-stem 上：
+      //      <div class="fp-q" style="--hang:1.750em"> > <div class="fp-stem"> > <p class="fp-first">
+      //    实测（chromium）：node.parentNode(.fp-stem).style.getPropertyValue('--hang') === ''
+      //                     node.parentNode.parentNode(.fp-q) === '1.750em'
+      //    走 .fp-stem 会永远取到空串、静默退到兜底值 28px。
+      //    28px 恰好等于默认档 1.75em×16，所以默认档看不出问题 —— 但换档就错。
+      //    这里改成**逐级向上找**，并且优先用计算值（继承值也能拿到，最稳）。
+      var hangPx = 0;
+      try {
+        var readHang = function(el){
+          // computed 值能把「继承自上层的自定义属性」也解析出来，比 inline style 可靠
+          try {
+            var cv = window.getComputedStyle(el).getPropertyValue('--hang');
+            if (cv && cv.trim()) return cv.trim();
+          } catch (e){}
+          try {
+            var iv = el.style && el.style.getPropertyValue('--hang');
+            if (iv && iv.trim()) return iv.trim();
+          } catch (e){}
+          return '';
+        };
+        var hv = '';
+        for (var up = node, hop = 0; up && up.nodeType === 1 && hop < 6 && !hv; up = up.parentNode, hop++){
+          hv = readHang(up);
+        }
+        if (!hv && atom && atom.hang) hv = String(atom.hang);
+        if (/^[\d.]+em$/.test(hv)) hangPx = parseFloat(hv) * 16;
+        else if (/^[\d.]+px$/.test(hv)) hangPx = parseFloat(hv);
+        else if (/^[\d.]+$/.test(hv)) hangPx = parseFloat(hv);
+      } catch (e){}
+      if (!(hangPx > 0)) hangPx = 28;           // 兜底：默认 HANG=1.75em × 16px
+      var pad = Math.ceil(hangPx) + 4;          // 多给 4px 余量，防亚像素误差
+      parts.first.style.overflow = 'visible';
+      parts.first.style.clipPath = 'inset(0 -' + pad + 'px 0 -' + pad + 'px)';
+      try { parts.first.style.webkitClipPath = 'inset(0 -' + pad + 'px 0 -' + pad + 'px)'; } catch (e){}
+      parts.first.style.marginBottom = '0';
+      parts.first.style.breakInside = 'auto';
+      parts.first.style.pageBreakInside = 'auto';
+      parts.rest.style.marginTop = '0';
+      parts.rest.style.breakInside = 'auto';
+      parts.rest.style.pageBreakInside = 'auto';
+
+      // ⚠️⚠️ 1.8.26 修复：换页处多出一个空格（用户报「志愿填报服务」后面多一个空格）⚠️⚠️
+      //
+      // 症状：43 题被撕开，第 12 页末是「…不啻为一场志愿填报服务」，
+      //       第 13 页首是「的“供给侧改革”」，两页拼起来看着像「服务 的」——
+      //       中间凭空多出一个空格。而 DOM 里逐字符守恒（两段拼回去严格等于原文），
+      //       根本没有空格字符 —— 这个空格是**渲染出来的**。
+      //
+      // 根因（chromium 实测，切点精确复刻到用户真机的「服务|的」）：
+      //   .fp-stem p 上有 text-align:justify + text-align-last:left（见 CSS）。
+      //   · 不撕开时：「…不啻为一场志愿填报服务」是段落的**中间行**，
+      //     justify 把这一行 40 个字拉伸填满整行 652.31px（每字约 +0.31px 字距），
+      //     实测行尾余量 = 0px。
+      //   · 撕开后：同一行成了首段的**最后一行**，text-align-last:left 生效，
+      //     这一行**不再拉伸**，40 个字回到自然宽 16.02px/字 = 640.8px，
+      //     行尾余量 = 737 − 724.70 = **12.30px**（而字宽 16.02px，排不下第 41 字）。
+      //   这 12.3px 的空档，视觉上就是「服务」后面那个空格。
+      //
+      // 实测数据（真机 q43 原文，remains = 2 行余量，切点落在「服务|的」）：
+      //             段落高      末行余量   末行字数   末行平均字宽
+      //   现状      51.19px     12.30px       40        16.02px
+      //   加 justify 51.19px      0px         40        16.32px   ← 采用
+      //   → 段落高不变（行数不变，分页边界不受影响）、字宽只被拉伸 0.3px（肉眼不可辨）。
+      //
+      // ⚠️ 必然性（不是偶然）：这是「撕开段落」这个动作**固有**的后果，
+      //   凡被撕开的段落，其页尾那一段的末行都会从「撑满」变成「左对齐留空」。
+      //   1.8.26 之前没被发现，是因为它只在「撕开处恰好紧跟下一段首字」时才显眼。
+      //
+      // 修法：给首段设 text-align-last:justify，让它的末行也撑满，
+      //   视觉上与「不撕开」时的那一行完全一致，12.3px 空档归零。
+      //
+      // ⚠️ 为什么**只给 first、不给 rest**：
+      //   rest 的末行是这道题**真正的段落末行**，本来就该按 text-align-last:left
+      //   保持自然宽度（和全卷所有段落的末行一致）。给 rest 也加 justify 会
+      //   把所有续段的末行都拉满，反而制造出新的不一致。
+      //
+      // ⚠️ 短末行的保险（防止极端情况下字被拉变形）：
+      //   text-align-last:justify 会把末行拉到满宽。末行字数越少，每个字摊到的
+      //   额外字距越大。实测 310 个构造场景（逐 1px 推 remain 扫过每一行边界），
+      //   末行字数最少也有 39 字、最大拉伸仅 0.72px —— 因为 findLineCut 的二分会
+      //   取「装得下的最大 g」，加上标点后移校正（PUNCT 循环），切点天然落在行尾
+      //   靠后处，短末行根本不出现。
+      //   但这是**经验规律**不是**保证**，所以这里再加一道硬保险：
+      //   量出首段末行**实际有几个字**，只有足够多（≥8）才启用。
+      //   拿不到行信息就保守**不启用** —— 宁可留那 12.3px，也绝不把字拉变形。
+      //
+      //   ⚠️ 统计口径必须**逐字符**，不能用 getClientRects() 的矩形个数：
+      //   ⚠️ 别用 getClientRects() 的矩形个数当「字数」：
+      //     Range 返回的是**文本节点级别**的矩形，首段里的文本往往是「题号一个节点
+      //     + 正文一个节点」两三个片段，一条 40 字的行只会给出 1~2 个矩形。
+      //     1.8.26 初版就是踩了这个坑（写成 lastRun>=8），永远不满足、修复静默失效。
+      //
+      //   ⚠️ 更关键：这个测量必须在**摘探针之前**做（见上面 firstRowInfo 的赋值处）。
+      //     放到这里（片段已游离出文档）再量，getClientRects() 全是空，
+      //     同样恒为 0、同样静默失效。所以这里只**读** firstRowInfo，不重复测量。
+      if (firstRowInfo && firstRowInfo.nRows >= 2 && firstRowInfo.lastChars >= 8){
+        parts.first.style.textAlignLast = 'justify';
+        try { parts.first.style.webkitTextAlignLast = 'justify'; } catch (e){}
+      }
+    }
+    if (measHost) measHost.parentNode.removeChild(measHost);
+    return parts;
+  }
+
+  // 在 node 内按「行边界」找切点：返回 {node: 文本节点, offset}，使前段渲染高度 ≤ h。
+  // 用 Range.getClientRects() 取最后一行的底边量高度，二分定位 ——
+  // 切点必然落在行边界上，不会把一行字劈成上下两半，也不依赖任何 DOM 结构假设。
+  function findLineCut(node, h){
+    var NF = window.NodeFilter || { SHOW_TEXT: 4 };
+    var walker = document.createTreeWalker(node, NF.SHOW_TEXT, null, false);
+    var tns = [], n, i;
+    while ((n = walker.nextNode())) if (n.textContent.length) tns.push(n);
+    if (!tns.length) return null;
+    var total = 0;
+    for (i = 0; i < tns.length; i++) total += tns[i].textContent.length;
+    if (total < 2) return null;
+
+    var cs = window.getComputedStyle(node);
+    var lh = parseFloat(cs.lineHeight) || ((parseFloat(cs.fontSize) || 16) * 1.6);
+
+    // 高度基准：**第一个字形框的 top**，不是 <p> 的 border-box top。
+    //
+    // 为什么不能用 <p> 的 top（1.8.25 修正）：
+    //   题干第一个元素是题号 <span class="fp-num">28.</span>，字号/行高与正文不同，
+    //   实测它的字形框 top 比正文首行低 3px（25.6px 行高时）。
+    //   拿 <p> 的 top 当基准，等于给每一行都白加 3px，
+    //   二分出来的切点会提前整整一行 —— 页尾又留下该填没填的空白。
+    //   改用第一个字形框的 top 作基准：同源于 getClientRects，天然自洽，
+    //   题号、行内公式图、行内 <u> 的基线差异都不会污染这个基准。
+    //   （保留 <p> top 作为兜底：极端情况下 Range 一个矩形都拿不到时用得上。）
+    var base = node.getBoundingClientRect().top + (parseFloat(cs.paddingTop) || 0)
+      + (parseFloat(cs.borderTopWidth) || 0);
+    try {
+      var _r0 = document.createRange();
+      _r0.setStart(node, 0);
+      _r0.setEnd(tns[0], Math.min(1, tns[0].textContent.length));
+      var _c0 = _r0.getClientRects();
+      if (_c0 && _c0.length) base = _c0[0].top;
+    } catch (e){}
+
+    // 全局字符偏移 -> {node, offset}
+    function at(g){
+      var rem = g;
+      for (var i = 0; i < tns.length; i++){
+        if (rem <= tns[i].textContent.length) return { node: tns[i], offset: rem };
+        rem -= tns[i].textContent.length;
+      }
+      var last = tns[tns.length - 1];
+      return { node: last, offset: last.textContent.length };
+    }
+    // 量「前 g 个字符」占的真实高度。
+    //
+    // ⚠️⚠️ 1.8.25 关键修正（问题4「丢字」的真正根因，读者务必看完）⚠️⚠️
+    //
+    // 旧写法：return rects[last].bottom - base;
+    //   用 Range.getClientRects() 返回的**字形墨迹框**的下沿当高度。
+    //   但墨迹框不等于行框 —— 汉字字形只占行高的一部分，上下还留有空隙。
+    //   实测（正文 16px / 行高 25.6px，真机 28 题）：
+    //     行框底边 = 26.6px，而字形墨迹底边只有 24.0px —— 系统性少算 2.6px。
+    //
+    //   这 2.6px 的误差直接吃掉了整个字：
+    //     · findLineCut 用「少算 2.6px」的口径二分找切点 → 切点偏后；
+    //     · 偏后的切点内容真实需要 26.6px，却被判定「24px ≤ h」放行；
+    //     · splitTextAtom 给 first 段设 max-height:h + overflow:hidden；
+    //     · 于是 26.6px 的内容被塞进 25px 的盒子 —— **溢出的那一行被裁掉**。
+    //   用户看到的就是「就没有后面的显山露水」变成「就没有后面的显山」，
+    //   丢的正是最后那一个字（真机 max-height:25px / 行高 25.6px，实测溢出 1px）。
+    //
+    //   为什么上一版「测量层补 padding」没能解决：那是**宽度**口径不一致，
+    //   影响的是「一行能排几个字」；而这里是**高度**口径不一致，影响的是
+    //   「这几行到底多高」。两个 bug 独立，都得修。宽度那个已修（见 splitTextAtom）。
+    //
+    // 新写法：用「最后一个字形框的 top」加上**一个完整行高**。
+    //   字形框的 top 已经把行框的上半空隙算进去了，再加 lh 就回到行框底边，
+    //   这才是 max-height / overflow 实际裁切的边界。
+    //
+    // ⚠️ 基准 base 不能用 <p> 的 border-box top：
+    //   题干第一个元素是题号 <span class="fp-num">28.</span>，它有自己的字号/行高，
+    //   实测它的字形框 top 比正文首行**低 3px**（真机 25.6px 行高时的实测值）。
+    //   若拿 <p> 的 top 当基准，每行都会白多算约 3px，切点被迫提前一整行 ——
+    //   表现就是「撕得太保守、页尾又留下大片空白」（1.8.25 中间版本实测到过）。
+    //   这里改成用**第一个字形框的 top** 当基准：同源于 rects，天然自洽，
+    //   不受题号/行内元素基线的干扰。
+    function heightAt(g){
+      if (g <= 0) return 0;
+      var p = at(g);
+      var r = document.createRange();
+      try { r.setStart(node, 0); r.setEnd(p.node, p.offset); }
+      catch (e){ return 0; }
+      var rects = r.getClientRects();
+      if (!rects || !rects.length) return 0;
+      return rects[rects.length - 1].top - base + lh;
+    }
+
+    var lo = 1, hi = total - 1, best = 0;
+    while (lo <= hi){
+      var mid = (lo + hi) >> 1;
+      if (heightAt(mid) <= h){ best = mid; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    if (best <= 0 || best >= total) return null;
+
+    // 切点校正：避免把标点符号单独留在下一行开头（如句号自己成行）。
+    // 如果切点正好落在一个前置性标点（逗号、句号、分号等）前面，就往后挪，
+    // 让标点留在上一行；只要挪完仍在本行高度内就继续挪。
+    var PUNCT = /[，。！？、；：）》」』】〕］｝〉》」』】]/;
+    while (best < total){
+      var tmp = at(best);
+      var ch = tmp.node.textContent.charAt(tmp.offset);
+      if (!ch || !PUNCT.test(ch)) break;
+      if (heightAt(best + 1) > h) break;
+      best++;
+    }
+    return at(best);
+  }
+
+  // 按给定的页高把连续流切成一页页。gran 用来临时覆盖换页粒度
+  function cut(flow, lim, gran, host){
+    var atoms = collect(flow), i;
+    if (!atoms.length) return [];
+
+    // 先在 flow 里量一遍。flow 的宽度和页面内容区一模一样，
+    // 所以这里量到的位置就是搬进页面后的真实位置。
+    // 用「相对顶边的偏移」而不是逐个累加高度：margin 折叠、
+    // 题与题之间的间距，浏览器都已经算好了，照抄最省心。
+    var base0 = flow.getBoundingClientRect().top;
+    for (i = 0; i < atoms.length; i++){
+      var r = atoms[i].node.getBoundingClientRect();
+      atoms[i].h = r.height;
+      atoms[i].top = r.top - base0;
+    }
+    // 顶层盒子（.fp-q / .fp-mat）的外边距挂在自己首尾的原子上，
+    // 不然题目之间的间距会凭空消失，全挤成一团
+    for (i = 0; i < atoms.length; i++){
+      var o = atoms[i].own;
+      if (!o) continue;
+      var cs = window.getComputedStyle(o);
+      var isFirst = (i === 0) || (atoms[i - 1].own !== o);
+      var isLast = (i === atoms.length - 1) || (atoms[i + 1].own !== o);
+      if (isFirst) atoms[i].mt = Math.max(atoms[i].mt || 0, parseFloat(cs.marginTop) || 0);
+      if (isLast) atoms[i].mb = Math.max(atoms[i].mb || 0, parseFloat(cs.marginBottom) || 0);
+    }
+
+    // 同一水平线上的选项是「一行」：跨页时整行走，
+    // 免得一行四个被劈成 3+1，看着像排错了版
+    var row = 0, lastSlot = '', lastTop = -1;
+    for (i = 0; i < atoms.length; i++){
+      var a = atoms[i];
+      if (a.slot === 'opt'){
+        if (lastSlot !== 'opt' || lastTop < 0 || Math.abs(a.top - lastTop) > 2) row++;
+        a.row = row; lastTop = a.top;
+      } else lastTop = -1;
+      lastSlot = a.slot;
+    }
+
+    // 比一整页还高的作答区先按格线切片，免得整体挤到下一页、前面空一大块
+    var list = [];
+    for (i = 0; i < atoms.length; i++){
+      var at = atoms[i];
+      if (at.slot === 'space' && at.h > lim){
+        var grid = parseFloat(at.node.getAttribute('data-grid')) || 30;
+        var seg = Math.floor(lim / grid) * grid;
+        var rest = at.h, parts = [];
+        while (rest > seg){ parts.push(seg); rest -= seg; }
+        if (rest > 0) parts.push(rest);
+        for (var s = 0; s < parts.length; s++){
+          var d = document.createElement('div');
+          d.className = 'fp-space' + (s ? ' fp-space-mid' : '');
+          d.style.height = parts[s] + 'px';
+          d.style.backgroundImage = at.node.style.backgroundImage;
+          d.setAttribute('data-grid', grid);
+          list.push({ node: d, h: parts[s], qid: at.qid, slot: 'space', fig: at.fig,
+                      top: at.top + s * seg });
+        }
+        if (at.node.parentNode) at.node.parentNode.removeChild(at.node);
+      } else list.push(at);
+    }
+
+    // 打包成「块」：同一块的原子要么一起进当前页，要么一起翻到下一页。
+    // 块划多细由换页方式决定 —— 这也是「换页选项」真正起作用的地方。
+    //   whole  整道题一块：题目绝不跨页，页尾可能留白
+    //   smart  题干按段落、选项按行成块：既不散架也不大片留白（默认）
+    //   ultra  在 smart 基础上填得更满：段落可以从行缝里多撕几行，
+    //          「后面还有一大块、本页尾巴这点空间塞不下」时还会回头把上一段让出几行
+    var blocks = [], curBlk = null, curKey = null, md = gran || MODE;
+    for (i = 0; i < list.length; i++){
+      var x = list[i], key;
+      // 同一行的选项永远整行走 —— 极致省纸也不例外。
+      // 早先 ultra 是每个原子一块，一行四个选项会被劈成 3+1 分到两页上，
+      // 看着就像排错了版。省纸不能省到把选项行拆散。
+      if (x.slot === 'opt' && md !== 'whole') key = 'r' + x.qid + '_' + x.row;
+      else if (md === 'whole') key = x.qid ? ('q' + x.qid) : ('t' + i);
+      else if (md === 'ultra') key = 'u' + i;
+      else if (x.slot === 'stem') key = 's' + x.qid + '_' + i;
+      else if (x.slot === 'mat-head')
+        key = (i + 1 < list.length && list[i + 1].slot === 'mat') ? ('x' + (i + 1)) : ('x' + i);
+      else key = 'x' + i;
+      if (key !== curKey){
+        curBlk = { top: x.top, h: x.h, items: [x] };
+        blocks.push(curBlk); curKey = key;
+      } else {
+        curBlk.items.push(x);
+        curBlk.h = x.top + x.h - curBlk.top;
+      }
+    }
+
+    // ---------------- 装页：真放进去、真量一次 ----------------
+    // 旧逻辑拿 flow 里量好的 top/h 去估算「这块放进去会到哪儿」，可 place() 搬动
+    // 原子时会重建 .fp-q / .fp-stem / .fp-opts / .fp-mat 外壳 —— 外壳自己的
+    // padding / gap，以及被外壳打断的外边距折叠，全都不在那个估算里。
+    // 估少了内容顶出页面，估多了页尾空一大截。用户反馈的两件事都出在这儿：
+    //   · 「还剩五六行留白，选项却整个甩到了下一页」—— 估算把块算高了；
+    //   · 「预览里改成极致省纸后出现大段空白」—— 顶出的页逼着 paginate 收紧
+    //     页高，一收紧接着全篇每一页都跟着矮下去。
+    // 现在改成：放进当前页 → 量一次真实高度 → 放不下就撤回来翻页。
+    var pages = [], cur = mkPage(), st = {}, used = 0;
+    // 本页已经装进去的块（按序），极致省纸回头让位时用得上；翻页即清空
+    var pageBlocks = [];
+    host.appendChild(cur);      // 页必须挂在文档里，否则量到的高度恒为 0
+
+    // 本页内容真实高度：取首末子元素的跨度，再补回首元素的外上边距。
+    // 不能直接量 .fp-pbody —— 它是 flex:1，内容不满时被拉伸成整页高，
+    // 量出来永远等于 BODY_H，真实留白会被完全抹平。
+    function pageH(){
+      var b = bodyOf(cur), kids = b ? b.children : null;
+      if (!kids || !kids.length) return 0;
+      var f = kids[0], l = kids[kids.length - 1];
+      var mt = (b.firstElementChild === f) ? 0 : (parseFloat(window.getComputedStyle(f).marginTop) || 0);
+      return l.getBoundingClientRect().bottom - f.getBoundingClientRect().top + (mt > 0 ? mt : 0);
+    }
+
+    function flushPage(){
+      pages.push(cur);
+      cur = mkPage(); host.appendChild(cur);
+      st = {}; used = 0; pageBlocks = [];
+    }
+
+    // 把刚放进去的原子撤回来：摘掉节点、清掉空壳、重置外壳缓存。
+    // 清空 st 是关键 —— 下一次 place() 会重新建壳，不会留下空 .fp-q 占着位置。
+    function unplace(items){
+      // 注意 items 里装的是原子对象，真正的节点在 .node 上
+      for (var k = items.length - 1; k >= 0; k--){
+        var n = items[k] && items[k].node;
+        if (n && n.parentNode) n.parentNode.removeChild(n);
+      }
+      // ★ 1.10.0 修正（原写法 cur.firstChild 是 1.8.27 空白卷的元凶）：
+      //   容器显式取 bodyOf(cur) —— firstChild 是个会随功能增减而漂移的指针，
+      //   页眉一出现它就指向 .fp-pheader，于是这一行会把页眉当空壳删掉，
+      //   页眉一没、.fp-pbody 补位，下一轮连正文容器一起删 → 整页只剩页眉。
+      //   查询范围**保持原样**（后代查询）：外壳是嵌套的（.fp-q > .fp-stem /
+      //   .fp-opts），换成「只查直接子元素」会漏掉中间层空壳，实测页面里
+      //   会残留空 .fp-q，卷面与旧版不一致。这里只修容器取法，不动查询范围。
+      //   末尾的 parentNode 兜底是新增的：防「上一步误删后新元素补位」被连带清理。
+      var b = bodyOf(cur);
+      if (b){
+        var sh = b.querySelectorAll('.fp-q,.fp-stem,.fp-opts,.fp-mat');
+        for (var k2 = 0; k2 < sh.length; k2++)
+          if (!sh[k2].children.length && sh[k2].parentNode) sh[k2].parentNode.removeChild(sh[k2]);
+      }
+      for (var key in st) delete st[key];
+      used = pageH();
+    }
+
+    // ★ 1.8.24 修正（问题1：撕开后 C/D 之间的间距明显大于 A/B/C）
+    //
+    // 现象：一道题的选项 A/B/C 在上一页、D 被拆到下一页时，C 和 D 之间的
+    //       空隙比 A/B/C 之间大一截，看起来像凭空多空了一行。
+    //
+    // 根因：.fp-q 的 margin-bottom 语义是「题目与题目之间」的间距。
+    //       同一壳内 A/B/C 之间只有 .fp-opt 自己的 margin（0.4em ≈ 6.4px）；
+    //       而 C 与 D 之间跨了壳边界，那里站着的是 .fp-q 的 margin（默认 18px）——
+    //       它和壳内最后一个 .fp-opt 的 6.4px 折叠，取大者 18px。
+    //       于是接缝处的间距被「题目间距」顶替了，凭空大出一截。
+    //
+    // 修法：被拆开的那个壳（后面还跟着同一道题的续排）不该吃题目间距 ——
+    //       它后面跟的是自己的下半截，不是新题。给它打上 fp-cont，CSS 里清零。
+    //
+    // 为什么放在装页全部结束之后统一打标：这是**向后看**的判断
+    // （得知道后面还有没有同题的续排），装到一半时还没法确定。
+    // 为什么用 qid 而不是「同页/跨页」来判断：同一页内也可能被拆成两个壳
+    // （块拆成单原子重来时就会），只按页判断会漏。
+    function markSplitShells(pages){
+      // 先收集每个 qid / mid 最后一次出现的壳
+      var lastQ = {}, lastM = {};
+      for (var p = 0; p < pages.length; p++){
+        var bd = bodyOf(pages[p]);
+        if (!bd) continue;
+        var qs = bd.querySelectorAll('.fp-q[data-fp-qid]');
+        for (var z = 0; z < qs.length; z++)
+          lastQ[qs[z].getAttribute('data-fp-qid')] = qs[z];
+        var ms = bd.querySelectorAll('.fp-mat[data-fp-mid]');
+        for (z = 0; z < ms.length; z++)
+          lastM[ms[z].getAttribute('data-fp-mid')] = ms[z];
+      }
+      // 再扫一遍：凡是「不是该 qid 最后一次出现」的壳，后面都还跟着续排 → 清零下间距
+      for (p = 0; p < pages.length; p++){
+        var bd2 = bodyOf(pages[p]);
+        if (!bd2) continue;
+        var qs2 = bd2.querySelectorAll('.fp-q[data-fp-qid]');
+        for (var y = 0; y < qs2.length; y++){
+          var k = qs2[y].getAttribute('data-fp-qid');
+          if (lastQ[k] !== qs2[y]) qs2[y].classList.add('fp-cont');
+        }
+        var ms2 = bd2.querySelectorAll('.fp-mat[data-fp-mid]');
+        for (y = 0; y < ms2.length; y++){
+          var km = ms2[y].getAttribute('data-fp-mid');
+          if (lastM[km] !== ms2[y]) ms2[y].classList.add('fp-cont');
+        }
+      }
+    }
+
+    // 换个节点、其余元信息照抄：撕开段落时把 first / rest 续回队列用得上
+    function reatom(a, node){
+      return { node: node, qid: a.qid, slot: a.slot, fig: a.fig, grid: a.grid,
+               mid: a.mid, own: a.own, hang: a.hang, ohang: a.ohang };
+    }
+
+    function put(items){
+      for (var y = 0; y < items.length; y++) place(bodyOf(cur), items[y], st);
+      return pageH();
+    }
+
+    // 撕开填缝的门槛：剩余空间太窄就不撕了，免得把段落切得七零八落。
+    //
+    // ⚠️ 1.8.24 实测澄清（重要，别再白改一遍）：
+    // 一度以为 smart 档 0.2 门槛太高（≈197px）导致全篇不撕，因为实测每页尾留白
+    // 稳定在 123~157px、27/27 页都低于门槛。但给 splitTextAtom 插桩后发现：
+    // 它 **被调用 0 次** —— 压根没走到这条分支。
+    //
+    // 真正的原因在更上面：分页按「块」整块塞（if (h1 <= lim) 就直接收），
+    // 页尾留白 130px 是因为**下一个块整体高于 130px**，于是整块翻页；
+    // 而这个块自己不高于 lim，放得进下一页，所以永远轮不到「撕开填缝」。
+    // 这是**块粒度**问题，不是门槛问题 —— 调门槛一点用都没有（已实测：改完留白分毫未动）。
+    //
+    // 因此门槛保持原值不动，等块粒度问题解决后再看是否需要调。
+    var SPLIT_MIN = (md === 'ultra') ? 0.015 : 0.2;
+
+    for (i = 0; i < blocks.length; i++){
+      var b = blocks[i];
+      var h0 = used;                       // 放这一块之前，本页已经占掉的高度
+      var h1 = put(b.items);
+
+      // 章节标题孤悬在页尾（下面还有内容）才整段挪到下一页，避免标题独占一页、正文被挤走。
+      // 阈值取页高 82%：只有真的快到底了才挪，平时就跟普通内容一样顺流排，不留大空白。
+      if (b.items[0].slot === 'top' && h0 > lim * 0.82 && h1 > lim * 0.9 && i + 1 < blocks.length){
+        unplace(b.items); flushPage();
+        used = put(b.items);
+        if (used > lim) cur.__hard = true;
+        continue;
+      }
+
+      if (h1 <= lim){ pageBlocks.push({ items: b.items, h0: h0, h1: h1 }); used = h1; continue; }
+
+      // ---- 本页放不下 ----
+      if (h0 > 0){
+        unplace(b.items);
+        // 单个大段文字：剩余空间还不少时就从行边界撕开填缝，
+        // 免得整段翻页在页尾留下大片空白
+        if (b.items.length === 1 && md !== 'whole'
+            && (lim - h0) > lim * SPLIT_MIN && canSplitNode(b.items[0].node)){
+          var parts = splitTextAtom(b.items[0], lim - h0);
+          if (parts){
+            place(bodyOf(cur), reatom(b.items[0], parts.first), st);
+            used = pageH();
+            flushPage();
+            // 续段塞回队列：下一轮站在空白页上重新量，还放不下就再撕一次
+            blocks.splice(i + 1, 0, { items: [ reatom(b.items[0], parts.rest) ] });
+            continue;
+          }
+        }
+        // 这一块自己撕不开（图片选项整行 / 表格），而本页尾巴这点缝确实塞不下：
+        // 极致省纸再试一招 —— 回头把本页最后那段文字让出几行，给这块腾地方。
+        // 「明明还剩五六行，选项却整个跑到下一页去了」多半就是卡在这儿。
+        if (md === 'ultra' && pageBlocks.length && !canSplitNode(b.items[0].node)){
+          var bH = h1 - h0;                                  // 这块实际要占的高度
+          var prev = pageBlocks[pageBlocks.length - 1];
+          var prevH = prev.h1 - prev.h0;
+          // 上一段让出之后，本页剩下的高度要能整块吃下 b，且上一段还得留得住两行
+          var room = lim - bH - prev.h0;
+          if (prev.items.length === 1 && canSplitNode(prev.items[0].node)
+              && room >= 60 && room < prevH - 20){
+            unplace(prev.items);
+            var p3 = splitTextAtom(prev.items[0], room);
+            if (p3){
+              place(bodyOf(cur), reatom(prev.items[0], p3.first), st);
+              used = pageH();
+              flushPage();
+              // 让出来的那几行要排在 b 前面，否则题干和选项的顺序就颠倒了
+              blocks.splice(i, 0, { items: [ reatom(prev.items[0], p3.rest) ] });
+              continue;
+            }
+            // 撕不动就原样放回去，当什么都没发生
+            place(bodyOf(cur), prev.items[0], st);
+            used = pageH();
+          }
+        }
+        flushPage();
+        used = put(b.items);
+        if (used <= lim){ pageBlocks.push({ items: b.items, h0: 0, h1: used }); continue; }
+      } else used = h1;
+
+      // ---- 连空白页都放不下：这一块比整页还高 ----
+      // 能撕就撕，能拆就拆；实在拆不动才算「物理必然超出」。
+      if (b.items.length === 1 && md !== 'whole' && canSplitNode(b.items[0].node)){
+        var p2 = splitTextAtom(b.items[0], lim);
+        if (p2){
+          unplace(b.items);
+          place(bodyOf(cur), reatom(b.items[0], p2.first), st);
+          used = pageH();
+          flushPage();
+          blocks.splice(i + 1, 0, { items: [ reatom(b.items[0], p2.rest) ] });
+          continue;
+        }
+      }
+      if (b.items.length > 1){
+        // 拆成单原子重来：能各自塞进页的就不再顶出去了
+        unplace(b.items);
+        blocks.splice(i + 1, 0, { items: b.items.slice(1) });
+        blocks[i] = { items: [ b.items[0] ] };
+        i--;                               // 退回一格，先单独处理第一个原子
+        continue;
+      }
+      // 单个原子本身就比一页还高且切不开（超长表格 / 大图）：打个标记。
+      // 它超出是必然的，收紧页高救不了它，却会把其余每一页一起压矮。
+      cur.__hard = true;
+      pageBlocks.push({ items: b.items, h0: h0, h1: used });
+      used = pageH();
+    }
+    pages.push(cur);
+    // 装页全部结束，此刻才谈得上「往后看」判断哪些壳后面还跟着自己的续排：
+    // 给它们打 fp-cont 清零题目间距，消除撕开接缝处凭空多出来的空隙。
+    markSplitShells(pages);
+    return pages;
+  }
+
+  // 1.8.9：兜底清扫 —— 撕开/重排过程中可能漏掉清空的空题壳（.fp-q/.fp-stem/.fp-opts/.fp-mat
+  // 没有任何元素子节点）。这类空壳会让续排页看上去像「空题框 / 掉题号」，统一删掉最稳。
+  function sweepEmptyShells(pages){
+    for (var p = 0; p < pages.length; p++){
+      // ★ 1.10.0：显式取正文容器，不认 firstChild（页眉会让 firstChild 漂移）
+      var body = bodyOf(pages[p]);
+      if (!body) continue;
+      var sh = body.querySelectorAll('.fp-q,.fp-stem,.fp-opts,.fp-mat');
+      for (var s = 0; s < sh.length; s++){
+        if (!sh[s].children.length && sh[s].parentNode) sh[s].parentNode.removeChild(sh[s]);
+      }
+    }
+  }
+
+  // 溢出容忍阈值：见 paginate() 里收紧重切那段的说明。1.8.27 的经验值是 1px
+  // 太严（原地打转跑 3 遍），6px 恰好拦住没有任何意义的舍入差、又拦不住真溢出。
+  var TOL = 6;
+
+  function paginate(){
+    var flow = document.getElementById('fp-flow');
+    var host = document.getElementById('fp-pages');
+    if (!flow || !host) return;
+    if (!flow.children.length){ flow.style.display = 'none'; return; }
+
+    // 连续流先留个底稿：脚本预估的高度和浏览器实际排出来总有那么几像素出入
+    // （margin 折叠、亚像素舍入都算），收紧重切时必须从原始流重来。
+    var backup = flow.cloneNode(true);
+    var pages = [], lim = BODY_H, i, t, gran = null;
+
+    for (var round = 0; round < 5; round++){
+      flow.innerHTML = '';
+      for (t = 0; t < backup.childNodes.length; t++)
+        flow.appendChild(backup.childNodes[t].cloneNode(true));
+      // 克隆出来的 img 是全新节点，还没解码，宽高比拿不到 ——
+      // 把原节点上记好的比例补回去，不然这一轮量出来的高度又偏小了
+      var ci = flow.querySelectorAll('img');
+      for (t = 0; t < ci.length; t++){
+        var ar = ci[t].getAttribute('data-fp-ar');
+        if (ar && !ci[t].style.aspectRatio)
+          ci[t].style.setProperty('aspect-ratio', ar.replace('/', ' / '), 'important');
+      }
+      host.innerHTML = '';
+      pages = cut(flow, lim, gran, host);
+      if (!pages.length) break;
+      for (i = 0; i < pages.length; i++) host.appendChild(pages[i]);
+      // 切完真刀真枪量一遍：有页被顶高了就收紧页高重切
+      var over = 0;
+      for (i = 0; i < pages.length; i++){
+        // 打了 __hard 的页：里面的原子本身比一页还高，收紧 lim 救不了它，
+        // 却会把其余每一页一起压矮（旧逻辑因此让全篇每页都留十几行空白），跳过
+        if (pages[i].__hard) continue;
+        // .fp-pbody 在屏幕模式下是 flex:1，内容不满时会被拉伸成整页高，
+        // 量它的高度永远等于 BODY_H，真实溢出/留白会被掩盖。
+        // 改量首末子元素的实际跨度。
+        // ★ 1.10.0：容器走 bodyOf()，不认 firstChild（页眉会让 firstChild 漂移）
+        var b = bodyOf(pages[i]);
+        if (!b) continue;
+        var kids = b.children;
+        if (!kids.length) continue;
+        var hh = kids[kids.length - 1].getBoundingClientRect().bottom - kids[0].getBoundingClientRect().top;
+        if (hh - BODY_H > over) over = hh - BODY_H;
+      }
+      // ★ 1.10.0：容忍阈值 1px → 6px（源自 1.8.27 分页慢的根因）
+      //   那几像素不是真装不下，而是「put() 估算高度」与「最终布局实测」之间的
+      //   固有舍入差（亚像素行高、外边距合并取整）。旧逻辑「溢出 4px 就收 4px」，
+      //   下一轮几乎必然又量到同样的 4px —— 原地打转，全量重切跑 3 遍（1895ms）。
+      //   6px 在 A4 上约 0.16mm，打印和肉眼都无感；而真正装不下的溢出至少是
+      //   一个行高量级（本项目行高 25.6px），6px 拦不住它。
+      if (over <= TOL) break;
+      // 下限 0.95 只是防失控的兜底。同时收紧量给足（over + TOL），
+      // 别让下一轮还差一口气 —— 否则就是「收 4px、还差 5.2px、再收」的振荡。
+      var next = Math.max(BODY_H * 0.95, lim - Math.max(4, Math.ceil(over + TOL)));
+      if (next >= lim) break;            // 已经压到下限，再跑几轮也是白跑
+      lim = next;
+      // 连着两轮都收不住，说明当前粒度下没有能塞进去的切法：
+      // 「整题不拆」在这儿行不通，换最细粒度再试，宁可拆题也别把字顶出页面
+      if (round >= 1) gran = 'ultra';
+    }
+
+    sweepEmptyShells(pages);
+
+    for (i = 0; i < pages.length; i++){
+      // 封面/封底/二维码是独立的 .fp-sheet，不进入 pages 数组。
+      // 正文页从第 1 页开始连续编号，每页都显示署名和页码。
+      // ★ 1.10.0：页码节点显式查询，不再用 lastChild.lastChild 这种尾链定位 ——
+      //   页眉在页首不改变尾链，但尾链本身经不起「往页面里加新 flex 项」的折腾。
+      var pgEl = pages[i].querySelector('.fp-pfooter .fp-pg');
+      if (pgEl) pgEl.textContent = '第 ' + (i + 1) + ' 页 / 共 ' + pages.length + ' 页';
+    }
+    flow.innerHTML = '';
+    flow.style.display = 'none';
+    var tip = document.getElementById('fp-loading');
+    if (tip) tip.style.display = 'none';
+  }
+
+  // 暴露「重切」钩子：预览里渲染稳定后由主页面自动调一次，等价于手动切换一次换页模式，
+  // 用干净的页码状态消除竞态空白，且不动 renderPreview 结构（不跳页、不重建 iframe）
+  window.__fpRetighten = paginate;
+
+  // 等字体就位再量高度，否则中文字体一换，量出来的高度全是错的
+  function layout(){
+    var run = function(){
+      try { paginate(); } catch (e) {
+        // 分页失败就退回连续流，至少内容还在、还能打印
+        var f = document.getElementById('fp-flow');
+        if (f) { f.style.visibility = 'visible'; f.style.display = ''; }
+        var tp = document.getElementById('fp-loading');
+        if (tp) tp.style.display = 'none';
+      }
+      window.__fpReady = true;
+    };
+    if (document.fonts && document.fonts.ready){
+      var t = setTimeout(run, 1200);
+      try { document.fonts.ready.then(function(){ clearTimeout(t); run(); }); }
+      catch (e) { run(); }
+    } else run();
+  }
+
+  // 图片没解码完时宽度为 0，直接缩放会全部失效；过早打印则 PDF 里图形题空白
+  function waitReady(){
+    var deadline = Date.now() + 15000;
+    (function poll(){
+      scaleFigures();
+      var p = pending();
+      if (p === 0 || Date.now() > deadline){
+        layout();
+        return;
+      }
+      setTimeout(poll, 250);
+    })();
+  }
+  if (document.readyState === 'complete') waitReady();
+  else window.addEventListener('load', waitReady);
+  setTimeout(function(){ window.__fpReady = true; }, 18000);
+
+  var printed = false, shown = false, fpCloseTimer = null;
+  function stopCloseTimer(){ if (fpCloseTimer){ clearInterval(fpCloseTimer); fpCloseTimer = null; } }
+
+  // 打印对话框一关就弹「打印完成」并立刻起倒计时；倒计时期间点任一按钮都能立即生效
+  window.addEventListener('afterprint', function(){ printed = true; showDone(); });
+  // 兜底：个别浏览器 afterprint 不触发，靠窗口重新拿到焦点补一次（只在从未弹出过时生效）
+  window.addEventListener('focus', function(){ if (printed && !shown) showDone(); });
+
+  function showDone(){
+    var box = document.getElementById('fp-done');
+    var btnStay = document.getElementById('fp-done-stay');
+    var btnClose = document.getElementById('fp-done-close');
+    // 点「导出PDF」进来的人是要存文件的，说「打印完成」会让人怀疑是不是存错了；
+    // 点「排版并打印」的人才是要打印。两套文案。
+    if (OUT === 'save') {
+      document.getElementById('fp-done-t').textContent = '保存成功！';
+      document.getElementById('fp-done-p').textContent = 'PDF 已保存到你在打印对话框里选的位置。没存上就按 P 键再试一次；或选择下方操作。';
+    } else {
+      document.getElementById('fp-done-t').textContent = '打印完成！';
+      document.getElementById('fp-done-p').textContent = '如需重打，按 P 键再次唤起打印对话框；或选择下方操作。';
+    }
+    box.style.display = 'flex';
+    btnStay.removeAttribute('disabled');
+    btnClose.removeAttribute('disabled');
+    shown = true;
+    startCloseTimer(btnClose);
+  }
+
+  // CD 为 0 = 不自动关闭，只留按钮给手动点；否则从 CD 秒起倒数，归零则关页面
+  function startCloseTimer(btn){
+    stopCloseTimer();
+    var left = CD > 0 ? Math.round(CD) : 0;
+    if (!left){ btn.textContent = '关闭页面'; return; }
+    btn.textContent = '关闭页面 (' + left + 's)';
+    fpCloseTimer = setInterval(function(){
+      left--;
+      if (left > 0) btn.textContent = '关闭页面 (' + left + 's)';
+      else { stopCloseTimer(); window.close(); }
+    }, 1000);
+  }
+
+  // 隐藏弹窗前必须先掐掉倒计时，否则页面会在用户以为已经取消之后被悄悄关掉
+  function hideDone(){
+    stopCloseTimer();
+    var b = document.getElementById('fp-done-close');
+    if (b) b.textContent = '关闭页面';
+    document.getElementById('fp-done').style.display = 'none';
+  }
+
+  document.getElementById('fp-done-stay').addEventListener('click', function(){
+    if (this.hasAttribute('disabled')) return;
+    hideDone();
+  });
+
+  document.getElementById('fp-done-close').addEventListener('click', function(){
+    if (this.hasAttribute('disabled')) return;
+    stopCloseTimer();
+    window.close();
+  });
+
+  document.addEventListener('keydown', function(e){
+    if (PREVIEW) return;   // 预览态：不响应打印 / 关闭快捷键，避免误打 iframe
+    if (e.key === 'Escape'){ hideDone(); }
+    else if ((e.key === 'p' || e.key === 'P') && !e.ctrlKey && !e.metaKey){
+      var t = e.target;
+      if (t && (/INPUT|TEXTAREA|SELECT/.test(t.tagName) || t.isContentEditable)) return;
+      window.print();
+    }
+  });
+})();
+<\/script>
+</body></html>`;
+
+        return html;
+    }
+
+    /* ==================================================================
+     * 七、输出层
+     * ================================================================ */
+
+    // 轮询生成页的就绪标志，避免图片没下载完就打印
+    function printWhenReady(win, timeout) {
+        timeout = timeout || 20000;
+        const t0 = Date.now();
+        let fired = false;
+        const fire = () => {
+            if (fired) return;
+            fired = true;
+            try { win.focus(); win.print(); } catch (e) { /* 忽略 */ }
+        };
+        (function poll() {
+            let ready = false;
+            try { ready = win.__fpReady === true; } catch (e) { ready = true; }
+            if (ready || Date.now() - t0 > timeout) fire();
+            else setTimeout(poll, 200);
+        })();
+    }
+
+    /* ==================================================================
+     * 八、主流程
+     * ================================================================ */
+
+    let busy = false;
+
+    // mode 由调用方传入：'print' = 排版并打印，'save' = 导出 PDF。
+    // 只用来决定结果页完成弹窗的文案，不影响排版本身。
+    async function generate(mode) {
+        const opt = collectOptions();
+        $('fp-title').value = opt.title;
+
+        const isShenlun = window.location.href.includes('shenlun');
+        const progress = (msg) => setStatus(esc(msg));
+
+        showMask(isShenlun ? '正在抓取材料与题目…' : '正在排版…',
+            isShenlun ? '需要逐个切换材料与题目标签，请稍候' : '题目较多时需要十几秒');
+
+        let items;
+        try {
+            items = isShenlun ? await extractShenlun(progress) : await extractXingce(progress);
+        } catch (e) {
+            console.error('[试卷排版] 提取失败', e);
+            hideMask();
+            setStatus('<span style="color:#dc2626">提取失败，请刷新页面重试</span>');
+            throw e;
+        }
+
+        // 页面没加载完的处理：先重试一次（等 Angular 渲染 / 懒加载补上），
+        // 还不行就明确让用户刷新，而不是印一份残缺的卷子出来。
+        if (isShenlun) {
+            await sleep(1200);
+            items = (await extractShenlun(progress)) || items;
+        } else {
+            const cnt = (a) => (a || []).filter((i) => i && i.kind === 'question').length;
+            if (cnt(items) === 0) {
+                progress('题目尚未加载完成，正在重试…');
+                await sleep(1500);
+                const again = await extractXingce(progress);
+                if (cnt(again) > cnt(items)) items = again;   // 重试拿到更多才替换
+            }
+        }
+
+        const questionCount = items.filter((i) => i.kind === 'question').length;
+        if (!items.length || questionCount === 0) {
+            hideMask();
+            setStatus('<span style="color:#dc2626">没抓到题目，请刷新页面重试</span>');
+            // 面板标题仍是占位符 → 顺便说明标题也没抓到，省得用户以为是两个问题
+            const tip = $('fp-title') && $('fp-title').value.trim() === TITLE_PLACEHOLDER
+                ? '\n（试卷名也没读到，页面应该还没加载完）' : '';
+            alert('没有在当前页面找到题目。\n请刷新页面、等题目完全显示出来后再试。' + tip);
+            throw new Error('no question');
+        }
+
+        // 题目拿到了、但试卷名读不到（少见）：明确告知会印兜底名，让用户自己选是否先刷新。
+        // 不用静默兜底 —— 用户有权知道封面印的不是真实卷名。
+        if (!readPaperTitle()) {
+            const ok = confirm('题目已读到，但没有读取到试卷名（页面可能还没完全加载）。\n\n'
+                + '点「确定」继续生成（封面上会用「公务员录用考试试卷」）；\n'
+                + '点「取消」先刷新页面重试。');
+            if (!ok) {
+                hideMask();
+                setStatus('已取消，请刷新页面后重试');
+                throw new Error('no question');
+            }
+            opt.title = '公务员录用考试试卷';
+            $('fp-title').value = opt.title;
+        }
+
+        // meta.mode 是题型（行测 / 申论），meta.output 是输出方式（打印 / 存 PDF）——
+        // 两个维度各用各的字段名，别再塞进同一个 mode 里。
+        const html = buildHtml(items, opt, {
+            mode: isShenlun ? 'shenlun' : 'xingce',
+            output: mode,
+            questionCount,
+        });
+        const matCount = items.filter((i) => i.kind === 'material').length;
+        setStatus(`共 <b>${questionCount}</b> 题${matCount ? `，<b>${matCount}</b> 份材料` : ''}`);
+
+        return { html, opt, title: opt.title };
+    }
+
+    // 进入做题页后自动统计并显示「共 X 题 / Y 份材料」，无需先点生成。
+    // 没有题目（不在做题页）时静默清空、不显示。轻量触发懒加载，不弹遮罩、不开新窗。
+    async function autoCount() {
+        if (busy) return;
+        const isShenlun = location.href.includes('shenlun');
+        let q = 0, m = 0;
+        if (isShenlun) {
+            // 申论：直接数题目 / 材料 tab，不切 tab、不克隆内容，零打扰
+            q = Number(document.querySelectorAll('.questions-anchors .tabs-content .tab, .questions-anchors .tab').length
+                || document.querySelectorAll('.questions-objective-container app-ti, app-ti').length) || 0;
+            m = Number(document.querySelectorAll('app-materials .tabs-content .tab').length) || 0;
+        } else {
+            try {
+                const items = await extractXingce(() => {}, true);
+                const arr = Array.isArray(items) ? items : [];
+                q = Number(arr.filter((i) => i && i.kind === 'question').length) || 0;
+                m = Number(arr.filter((i) => i && i.kind === 'material').length) || 0;
+            } catch (e) { setStatus(''); return; }
+        }
+        if (!q) { setStatus(''); return; }   // 没有题目不显示
+        setStatus(`共 <b>${q}</b> 题${m ? `，<b>${m}</b> 份材料` : ''}`);
+    }
+
+    async function run(mode) {
+        if (busy) return;
+        busy = true;
+        const pb = $('fp-print'), sb = $('fp-save');
+        const pt = pb.textContent, stx = sb.textContent;
+        pb.disabled = sb.disabled = true;
+        pb.textContent = '处理中…';
+
+        try {
+            const { html, opt, title } = await generate(mode);
+            const win = window.open('', '_blank');
+            if (!win) {
+                hideMask();
+                alert('浏览器拦截了弹窗。\n请允许本站弹出窗口后重试。');
+                return;
+            }
+            win.document.write(html);
+            win.document.close();
+            hideMask();
+            // 「导出 PDF」与「排版并打印」走同一条路：浏览器「打印」是唯一能保真出 PDF 的路径，
+            // 对话框里目标选「另存为 PDF」即存成文件，选真实打印机则直接打印到纸。
+            // 「排版并打印」尊重面板的「生成后自动唤起打印」开关；「导出 PDF」强制唤起。
+            if (mode === 'save' || opt.autoPrint) printWhenReady(win);
+        } catch (e) {
+            hideMask();
+            if (e && e.message !== 'no question') {
+                alert('生成试卷失败：' + (e.message || e));
+            }
+        } finally {
+            busy = false;
+            pb.disabled = sb.disabled = false;
+            pb.textContent = pt;
+            sb.textContent = stx;
+        }
+    }
+
+    /* ==================================================================
+     * 八·二、调整预览（解析一次 → 渲染进 iframe → 实时调参）
+     * ================================================================ */
+
+    let previewState = null;
+    let previewDebounce = 0;
+
+    // 复用 buildHtml：预览时 output 传 'preview' 且 preview:true（不自动打印/关页）
+    function buildPreviewHtml(state, output, preview) {
+        return buildHtml(state.items, state.opt, {
+            mode: state.isShenlun ? 'shenlun' : 'xingce',
+            output: output,
+            questionCount: state.questionCount,
+            preview: !!preview,
+        });
+    }
+
+    function renderPreview(state, isTighten) {
+        const ov = $('fp-prev');
+        if (!ov) return;
+        const frame = ov.querySelector('iframe');
+        if (!frame) return;
+        const doc = frame.contentDocument;
+        if (!doc) return;
+        // 重渲染前记住当前滚动位置（doc.open 会清空文档并让滚动归零）
+        let y = 0;
+        try { const w = frame.contentWindow; y = w ? (w.scrollY || w.pageYOffset || 0) : 0; } catch (e) {}
+        doc.open();
+        doc.write(buildPreviewHtml(state, 'preview', true));
+        doc.close();
+        // 分页是异步的（fonts.ready / ~1200ms 后才切页），必须等新文档切页完成
+        // （__fpReady 置位）再还原滚动，否则会还原到一个还没切页的旧高度上而跳页。
+        const restore = (tries) => {
+            const w = frame.contentWindow;
+            if (!w) return;
+            if (w.__fpReady || tries > 50) {
+                try {
+                    const max = w.document.documentElement.scrollHeight - w.innerHeight;
+                    w.scrollTo(0, Math.max(0, Math.min(y, max)));
+                } catch (e) {}
+                // 首次渲染稳定后（图片/字体已就位），自动再切一次消除竞态空白 ——
+                // 等价于手动切换一次换页模式，但复用同一 iframe、保留滚动位置，不跳页。
+                // 只触发一次（isTighten 标记防止递归），用 setTimeout 等文档真正安静下来。
+                if (!isTighten) {
+                    setTimeout(() => {
+                        try {
+                            if (ov.contains(frame) && frame.contentWindow.__fpRetighten) {
+                                frame.contentWindow.__fpRetighten();
+                                // 重切后把滚动位置对齐到刚才的位置，避免跳页
+                                const wy = frame.contentWindow.scrollY || 0;
+                                frame.contentWindow.scrollTo(0, Math.max(0, Math.min(y, wy + 0)));
+                            }
+                        } catch (e) {}
+                    }, 400);
+                }
+                return;
+            }
+            setTimeout(() => restore(tries + 1), 60);
+        };
+        setTimeout(() => restore(0), 80);
+    }
+
+    function scheduleRender(state) {
+        clearTimeout(previewDebounce);
+        previewDebounce = setTimeout(() => renderPreview(state), 180);
+    }
+
+    function openPreview() {
+        if (busy) return;
+        busy = true;
+        const isShenlun = window.location.href.includes('shenlun');
+        const opt = collectOptions();
+        showMask(isShenlun ? '正在抓取材料与题目…' : '正在排版…',
+            isShenlun ? '需要逐个切换材料与题目标签，请稍候' : '题目较多时需要十几秒');
+        (async () => {
+            let items;
+            try {
+                items = isShenlun ? await extractShenlun(() => {}) : await extractXingce(() => {});
+            } catch (e) {
+                console.error('[试卷排版] 预览提取失败', e);
+                hideMask();
+                setStatus('<span style="color:#dc2626">提取失败，请刷新页面重试</span>');
+                busy = false;
+                return;
+            }
+            // 与 generate() 同样的处理：没抓到先重试一次，仍不行就明确提示刷新
+            if (!isShenlun) {
+                const cnt = (a) => (a || []).filter((i) => i && i.kind === 'question').length;
+                if (cnt(items) === 0) {
+                    await sleep(1500);
+                    const again = await extractXingce(() => {});
+                    if (cnt(again) > cnt(items)) items = again;
+                }
+            }
+            const questionCount = items.filter((i) => i.kind === 'question').length;
+            if (!items.length || questionCount === 0) {
+                hideMask();
+                setStatus('<span style="color:#dc2626">没抓到题目，请刷新页面重试</span>');
+                alert('没有在当前页面找到题目。\n请刷新页面、等题目完全显示出来后再试。');
+                busy = false;
+                return;
+            }
+            hideMask();
+            buildPreviewUI({
+                items, isShenlun, questionCount,
+                matCount: items.filter((i) => i.kind === 'material').length,
+                opt, title: opt.title,
+            });
+            busy = false;
+        })();
+    }
+
+    function buildPreviewUI(state) {
+        const old = $('fp-prev');
+        if (old) old.remove();   // 每次重建，避免重复绑定事件 / 旧 state 串味
+        const ov = document.createElement('div');
+        ov.id = 'fp-prev';
+        ov.className = 'fp-prev show';
+        ov.innerHTML = `
+<div class="fp-prev-bar">
+  <div class="fp-prev-brand"><span class="fp-emoji">✨</span><span>调整预览</span></div>
+  <div class="fp-prev-ctl"><label>字号</label><input type="number" id="fpv-font" step="0.5" min="9" max="22"></div>
+  <div class="fp-prev-ctl"><label>行距</label><input type="number" id="fpv-lh" step="0.05" min="1" max="2.2"></div>
+  <div class="fp-prev-ctl"><label>题距</label><input type="number" id="fpv-qs" min="0" max="40"></div>
+  <div class="fp-prev-ctl"><label>图缩放</label><input type="number" id="fpv-fig" min="20" max="100"></div>
+  <div class="fp-prev-ctl"><label>换页</label><select id="fpv-pag">
+    <option value="smart">智能平衡</option><option value="ultra">极致省纸</option><option value="whole">整题不拆</option>
+  </select></div>
+  <div class="fp-prev-ctl"><label>页边</label><select id="fpv-mg">
+    <option value="25mm 20mm">宽松</option><option value="15mm 15mm">标准</option><option value="10mm 10mm">紧凑</option>
+  </select></div>
+  <div class="fp-prev-ctl"><label>字体</label><span class="fp-fam-wrap"><select id="fpv-fam"></select><a class="fp-cloud" id="fpv-famhelp" rel="noopener"></a></span></div>
+  <div class="fp-prev-ctl"><label><input type="checkbox" id="fpv-cover"> 封面页</label></div>
+  <div class="fp-prev-sp"></div>
+  <button class="fp-btn" id="fpv-print">打印</button>
+  <button class="fp-btn2" id="fpv-save">导出PDF</button>
+  <button class="fp-btn2" id="fpv-ok">保存并返回</button>
+  <span class="fp-prev-x" id="fpv-close" title="关闭">×</span>
+</div>
+<iframe class="fp-prev-frame"></iframe>`;
+        document.body.appendChild(ov);
+
+        // 用面板当前参数初始化
+        $('fpv-font').value = state.opt.fontSize;
+        $('fpv-lh').value = state.opt.lineHeight;
+        $('fpv-qs').value = state.opt.qSpacing;
+        $('fpv-fig').value = state.opt.figScale;
+        $('fpv-pag').value = state.opt.pagination;
+        $('fpv-mg').value = state.opt.margin;
+        // 字体下拉与主面板共用 fontOptionsHtml()，云朵按钮共用 renderFontCloud()，
+        // 两处的标注/按钮状态/提示文案永远一致。
+        // 探测未完成时先填不带状态的版本，探测到达后按渲染结果补齐（见下方的异步补齐）。
+        const famAvail = probeFontsCache();
+        const famKeyOf = () => (FONT_BY_KEY[state.opt.fontFamily] ? state.opt.fontFamily : DEFAULTS.fontFamily);
+        $('fpv-fam').innerHTML = fontOptionsHtml(famAvail);
+        $('fpv-fam').value = famKeyOf();
+        renderFontCloud($('fpv-famhelp'), famKeyOf(), famAvail);
+        $('fpv-cover').checked = !!state.opt.cover;
+
+        // 探测可能是这次才真正跑完的：完成后重建预览里的下拉，并保持当前选中值不变。
+        probeFonts().then((avail) => {
+            const el = $('fpv-fam');
+            if (!el) return;
+            const was = el.value;
+            el.innerHTML = fontOptionsHtml(avail);
+            el.value = FONT_BY_KEY[was] ? was : DEFAULTS.fontFamily;
+            renderFontCloud($('fpv-famhelp'), el.value, avail);
+        }).catch(() => { /* 探测失败不影响预览其它功能 */ });
+
+        // 任一参数变动 → 更新 state.opt → 防抖重渲染
+        const sync = () => {
+            state.opt.fontSize = Number($('fpv-font').value) || state.opt.fontSize;
+            state.opt.lineHeight = Number($('fpv-lh').value) || state.opt.lineHeight;
+            state.opt.qSpacing = Number($('fpv-qs').value) || state.opt.qSpacing;
+            state.opt.figScale = Number($('fpv-fig').value) || state.opt.figScale;
+            state.opt.pagination = $('fpv-pag').value;
+            state.opt.margin = $('fpv-mg').value;
+            state.opt.fontFamily = FONT_BY_KEY[$('fpv-fam').value] ? $('fpv-fam').value : DEFAULTS.fontFamily;
+            state.opt.cover = !!$('fpv-cover').checked;
+            // 换了字体，云朵按钮的 tooltip/黄点跟着走，跟主面板同一套逻辑
+            renderFontCloud($('fpv-famhelp'), state.opt.fontFamily, probeFontsCache());
+            scheduleRender(state);
+        };
+        ['fpv-font', 'fpv-lh', 'fpv-qs', 'fpv-fig'].forEach((id) => $(id).addEventListener('input', sync));
+        ['fpv-pag', 'fpv-mg', 'fpv-fam', 'fpv-cover'].forEach((id) => $(id).addEventListener('change', sync));
+
+        $('fpv-print').onclick = () => printFromPreview(state, 'print');
+        $('fpv-save').onclick = () => printFromPreview(state, 'save');
+        $('fpv-ok').onclick = () => saveFromPreview(state);
+        $('fpv-close').onclick = () => closePreview();
+
+        previewState = state;
+        renderPreview(state);
+    }
+
+    // 预览里点「打印 / 导出PDF」：复用已解析的 items，直接出新版窗口打印，无需重新爬页
+    function printFromPreview(state, mode) {
+        const win = window.open('', '_blank');
+        if (!win) { alert('浏览器拦截了弹窗。\n请允许本站弹出窗口后重试。'); return; }
+        win.document.write(buildPreviewHtml(state, mode, false));
+        win.document.close();
+        printWhenReady(win);   // 用户主动点打印/导出，必定唤起打印对话框
+    }
+
+    // 把预览里调好的参数写回面板并持久化，再关掉预览
+    function saveFromPreview(state) {
+        applySettings({
+            fontSize: state.opt.fontSize,
+            lineHeight: state.opt.lineHeight,
+            qSpacing: state.opt.qSpacing,
+            figScale: state.opt.figScale,
+            pagination: state.opt.pagination,
+            margin: state.opt.margin,
+            fontFamily: state.opt.fontFamily,
+            cover: state.opt.cover,
+        });
+        saveSettings();
+        closePreview();
+    }
+
+    function closePreview() {
+        const ov = $('fp-prev');
+        if (ov) ov.remove();
+        previewState = null;
+    }
+
+    /* ==================================================================
+     * 八·三、自选题目导出（提取一次 → 勾选题目 → 过滤 items → 走原排版链路）
+     *
+     * 三条硬约束（刻意如此，避免动到排版核心）：
+     *   1) 只新增「入口按钮 + 勾选界面 + 一层 items 过滤」，不碰 buildHtml / 分页 / 输出逻辑；
+     *   2) 过滤只做「挑出被选题 + 按开关留下其所属材料 / 章节 / 对应参考答案」，
+     *      输出仍走 buildHtml(items, opt, meta)，与「排版并打印」「导出为 PDF」完全同一条路；
+     *   3) 勾选界面默认全选 —— 什么都不改直接确认，效果等同于原「排版并打印」。
+     * ================================================================ */
+
+    // 勾选界面当前持有的提取结果（关掉界面即释放）
+    let pickState = null;
+
+    // 题干摘要：把 stemHtml 转成一行纯文本，图片用「［图］」占位，超长截断。
+    // 只用于列表展示，不参与排版。
+    function stemSummary(html, max) {
+        const d = document.createElement('div');
+        d.innerHTML = html == null ? '' : String(html);
+        d.querySelectorAll('img').forEach((img) => {
+            if (img.parentNode) img.parentNode.replaceChild(document.createTextNode('［图］'), img);
+        });
+        let s = (d.textContent || '').replace(/[\s\u00a0\u3000]+/g, ' ').trim();
+        if (!s) s = '（无题干文字）';
+        if (max > 0 && s.length > max) s = s.slice(0, max) + '…';
+        return s;
+    }
+
+    // 题号范围解析：支持「1-10,15,20-25」这类写法。
+    // 分隔符宽容（半角 / 全角逗号、分号、顿号、空白），区间连接符宽容（- ~ — ～ 至 到）。
+    // 单段跨度上限 500，避免手滑输入「1-999999」把浏览器拖死。
+    function parseRangeSpec(str) {
+        const out = new Set();
+        String(str == null ? '' : str).split(/[,，;；、\s]+/).forEach((seg) => {
+            if (!seg) return;
+            const m = seg.match(/^(\d+)\s*[-~—～至到]\s*(\d+)$/);
+            if (m) {
+                let a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+                if (a > b) { const t = a; a = b; b = t; }
+                if (b - a > 500) b = a + 500;
+                for (let i = a; i <= b; i++) out.add(i);
+                return;
+            }
+            const n = parseInt(seg, 10);
+            if (isFinite(n) && n > 0) out.add(n);
+        });
+        return out;
+    }
+
+    // —— 核心：按勾选结果过滤 items ——
+    // selected：被勾选题目在 items 中的下标集合
+    // includeMaterial / includeAnswer：是否保留材料 / 参考答案
+    // 规则：
+    //   · 题目：勾选了才留；
+    //   · 材料：行测按「材料 → 其后、下一份材料或下一章节之前的题目」归属，该区间里有被选题才留；
+    //           申论材料集中在全部题目之前、整卷共享，无法归属到单题，故有被选题时整包保留；
+    //   · 参考答案：仅申论有，按 key（缺失时按原题号）与被选中题目配对，配对上的才留；
+    //   · 章节：其区间（本章节 → 下一章节）内还有留存的题目 / 材料 / 答案才留，
+    //           免得印出「只有标题、没有内容」的空章节。
+    function pickFilterItems(state, selected, includeMaterial, includeAnswer) {
+        const items = state.items;
+        const keep = new Set();
+        const qSel = new Set();       // 被选中题目的 items 下标
+        const qKeys = new Set();      // 被选中题目的 key（给参考答案配对）
+        const qNums = new Set();      // 被选中题目的原题号（key 缺失时兜底配对）
+
+        items.forEach((it, i) => {
+            if (it.kind !== 'question' || !selected.has(i)) return;
+            qSel.add(i);
+            keep.add(i);
+            if (it.key) qKeys.add(it.key);
+            if (it.num) qNums.add(it.num);
+        });
+
+        if (includeMaterial) {
+            if (state.isShenlun) {
+                if (qSel.size) items.forEach((it, i) => { if (it.kind === 'material') keep.add(i); });
+            } else {
+                items.forEach((it, i) => {
+                    if (it.kind !== 'material') return;
+                    for (let j = i + 1; j < items.length; j++) {
+                        const nx = items[j];
+                        if (nx.kind === 'material' || nx.kind === 'chapter') break;
+                        if (nx.kind === 'question' && qSel.has(j)) { keep.add(i); break; }
+                    }
+                });
+            }
+        }
+
+        if (includeAnswer) {
+            items.forEach((it, i) => {
+                if (it.kind !== 'answer') return;
+                if (it.key && qKeys.has(it.key)) { keep.add(i); return; }
+                if (!it.key && it.num && qNums.has(it.num)) keep.add(i);
+            });
+        }
+
+        // 章节：只由区间内「还留着的题目 / 材料」决定去留
+        //（孤零零的参考答案不足以撑起一个章节标题，否则会印出没有正文的空章节）
+        const chIdx = [];
+        items.forEach((it, i) => { if (it.kind === 'chapter') chIdx.push(i); });
+        chIdx.forEach((ci, k) => {
+            const end = (k + 1 < chIdx.length) ? chIdx[k + 1] : items.length;
+            for (let j = ci + 1; j < end; j++) {
+                if (!keep.has(j)) continue;
+                const kd = items[j].kind;
+                if (kd === 'question' || kd === 'material') { keep.add(ci); break; }
+            }
+        });
+
+        return items.filter((it, i) => keep.has(i));
+    }
+
+    // 入口：先完整提取一次（与「文本调整预览」同一套提取 + 重试逻辑），再弹勾选界面
+    async function openPicker() {
+        if (busy) return;
+        busy = true;
+        const btn = $('fp-pick');
+        const oldTxt = btn ? btn.textContent : '';
+        if (btn) { btn.disabled = true; btn.textContent = '正在提取题目…'; }
+
+        const isShenlun = window.location.href.includes('shenlun');
+        showMask(isShenlun ? '正在抓取材料与题目…' : '正在排版…',
+            isShenlun ? '需要逐个切换材料与题目标签，请稍候' : '题目较多时需要十几秒');
+
+        (async () => {
+            try {
+                let items = isShenlun ? await extractShenlun(() => {}) : await extractXingce(() => {});
+                // 与 generate 同策略地兜一次「页面没加载完」：申论等一拍重取，行测重试到拿到题为止
+                if (isShenlun) {
+                    await sleep(1200);
+                    items = (await extractShenlun(() => {})) || items;
+                } else {
+                    const cnt = (a) => (a || []).filter((i) => i && i.kind === 'question').length;
+                    if (cnt(items) === 0) {
+                        await sleep(1500);
+                        const again = await extractXingce(() => {});
+                        if (cnt(again) > cnt(items)) items = again;
+                    }
+                }
+                const questionCount = items.filter((i) => i.kind === 'question').length;
+                if (!items.length || questionCount === 0) {
+                    hideMask();
+                    setStatus('<span style="color:#dc2626">没抓到题目，请刷新页面重试</span>');
+                    alert('没有在当前页面找到题目。\n请刷新页面、等题目完全显示出来后再试。');
+                    return;
+                }
+                hideMask();
+                buildPickerUI({ items, isShenlun, questionCount });
+            } catch (e) {
+                console.error('[试卷排版] 自选题目提取失败', e);
+                hideMask();
+                setStatus('<span style="color:#dc2626">提取失败，请刷新页面重试</span>');
+            } finally {
+                busy = false;
+                if (btn) { btn.disabled = false; btn.textContent = oldTxt; }
+            }
+        })();
+    }
+
+    function closePicker() {
+        const ov = $('fp-pickui');
+        if (ov) ov.remove();
+        pickState = null;
+    }
+
+    /* ---- 板块识别（供「自选题目导出」勾选界面使用）----
+     * 依据：行测卷 items 中 kind='chapter' 的章节项（页面 .chapter-container / .chapter-name）即模块分隔，
+     *   每个板块覆盖「该章节之后、下一章节之前」的全部题目；
+     *   题号区间取勾选列表序号 seq（与列表序号一致，不写死任何题号，题量随试卷变化全部现算）。
+     * 命名优先级：章节上的题型标识（data-category / data-type / data-name）
+     *   > 章节名中的六大模块关键字 > 页面原始章节名。
+     * 兜底：整卷没有章节时，改用题目节点自带的题型标识按「连续同标识」分组；
+     *   仍无依据则返回空数组（界面只给提示，不报错）。
+     * 申论不做板块区（直接返回空数组）。
+     */
+
+    // 六大模块关键字（按考试大纲顺序；顺序会影响「常识判断 / 判断推理」这类互相包含的名字归属）
+    const FP_BOARDS = [
+        { name: '政治理论', keys: ['政治理论', '政治常识'] },
+        { name: '常识判断', keys: ['常识判断', '常识'] },
+        { name: '言语理解与表达', keys: ['言语理解与表达', '言语理解', '言语'] },
+        { name: '数量关系', keys: ['数量关系', '数量'] },
+        { name: '判断推理', keys: ['判断推理', '判断'] },
+        { name: '资料分析', keys: ['资料分析', '资料'] },
+    ];
+
+    // 页面给出的题型标识（chapter-container / app-ti 上的 data-category / data-type / data-name）；
+    // 页面没提供就返回空串 —— 此时一切行为与改动前完全一致
+    function catOf(el) {
+        if (!el || !el.getAttribute) return '';
+        const v = el.getAttribute('data-category') || el.getAttribute('data-type') || el.getAttribute('data-name');
+        return v ? String(v).replace(/\s+/g, '') : '';
+    }
+
+    // 章节名（已转义）→ 纯文本，用于显示与关键字匹配
+    function plainName(html) {
+        const d = document.createElement('div');
+        d.innerHTML = html == null ? '' : String(html);
+        return (d.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+
+    // 原始名 → 标准板块名；匹配不到返回空串（由调用方回退成页面原始章节名）
+    function boardNameOf(raw) {
+        const s = String(raw == null ? '' : raw).replace(/\s+/g, '');
+        if (!s) return '';
+        for (let i = 0; i < FP_BOARDS.length; i++) {
+            const ks = FP_BOARDS[i].keys;
+            for (let j = 0; j < ks.length; j++) if (s.indexOf(ks[j]) >= 0) return FP_BOARDS[i].name;
+        }
+        return '';
+    }
+
+    // 「只导出三大块」按钮对应的板块名（与 detectBoards 产出的 name 对齐）
+    const THREE_BOARD_NAMES = ['言语理解与表达', '判断推理', '资料分析'];
+
+    // 返回 [{name, idxs, lo, hi}]：idxs 为 items 下标，lo/hi 为该板块的勾选列表序号区间
+    function detectBoards(state, qs) {
+        if (!state || state.isShenlun) return [];
+        const items = state.items || [];
+        if (!items.length || !qs.length) return [];
+
+        const seqOf = new Map();
+        qs.forEach((one) => seqOf.set(one.i, one.seq));
+        const make = (name, idxs) => {
+            const seqs = idxs.map((i) => seqOf.get(i)).filter((v) => v != null);
+            if (!seqs.length) return null;
+            return { name: name, idxs: idxs, lo: Math.min.apply(null, seqs), hi: Math.max.apply(null, seqs) };
+        };
+
+        // 1) 以章节切分（常规路径）
+        const out = [];
+        items.forEach((it, c) => {
+            if (it.kind !== 'chapter') return;
+            let end = items.length;
+            for (let j = c + 1; j < items.length; j++) if (items[j].kind === 'chapter') { end = j; break; }
+            const idxs = [];
+            for (let j = c + 1; j < end; j++) if (items[j].kind === 'question' && seqOf.has(j)) idxs.push(j);
+            if (!idxs.length) return;                       // 空章节不成板块
+            const raw = plainName(it.hint ? it.hint : it.name);
+            const b = make(boardNameOf(raw) || raw || ('板块 ' + (out.length + 1)), idxs);
+            if (b) out.push(b);
+        });
+        if (out.length) return out;
+
+        // 2) 兜底：没有任何章节时，用题目自带的题型标识按连续同标识分组
+        const tagged = [];
+        items.forEach((it, i) => {
+            if (it.kind !== 'question' || !seqOf.has(i)) return;
+            const raw = plainName(it.cat);
+            if (!raw) return;
+            const last = tagged[tagged.length - 1];
+            if (last && last.raw === raw) last.idxs.push(i);
+            else tagged.push({ raw: raw, idxs: [i] });
+        });
+        const taggedCount = tagged.reduce((s, b) => s + b.idxs.length, 0);
+        // 只有「多数题目都带标识」时才敢用，避免零星标识拼出残缺板块
+        if (taggedCount && taggedCount >= qs.length * 0.6) {
+            return tagged.map((b) => make(boardNameOf(b.raw) || b.raw, b.idxs)).filter(Boolean);
+        }
+        return [];
+    }
+
+    // 勾选界面：复用面板的 fp-* 视觉（深色卡片 + fp-btn / fp-btn2 / fp-check / fp-input）
+    function buildPickerUI(state) {
+        const old = $('fp-pickui');
+        if (old) old.remove();
+
+        // 列出全部题目：按出现顺序编号 + 粉笔原题号 + 题干纯文本摘要
+        const qs = [];
+        state.items.forEach((it, i) => {
+            if (it.kind !== 'question') return;
+            qs.push({
+                i,
+                seq: qs.length + 1,
+                num: it.num == null ? '' : String(it.num),
+                text: stemSummary(it.stemHtml, 68),
+            });
+        });
+
+        // 开关默认值：封面页跟随面板「打印封面页」；材料 / 参考答案面板没有对应开关，默认勾选
+        const coverEl = $('fp-cover');
+        const coverDef = coverEl ? !!coverEl.checked : true;
+
+        const rows = qs.map((q) => (
+            '<label class="fp-pick-item">'
+            + '<input type="checkbox" class="fp-pick-cb" data-i="' + q.i + '" checked>'
+            + '<span class="fp-pick-seq">' + q.seq + '</span>'
+            + (q.num ? '<span class="fp-pick-no">原题号 ' + esc(q.num) + '</span>' : '')
+            + '<span class="fp-pick-txt">' + esc(q.text) + '</span>'
+            + '</label>'
+        )).join('');
+
+        // 板块区：板块与题号区间全部由 items 现算（申论不显示；识别不到时只给提示、不影响其余功能）
+        const boards = detectBoards(state, qs);
+        const cbAt = new Map();                     // items 下标 → 勾选列表中的位置
+        qs.forEach((one, k) => cbAt.set(one.i, k));
+        const boardHtml = boards.length
+            ? '<div class="fp-boards" data-fp="boards"><span class="fp-boards-tt">板块</span>'
+              + boards.map((b, k) => (
+                  '<label class="fp-board" title="点击即勾选 / 取消该板块（' + b.lo + '-' + b.hi + '）的全部题目">'
+                  + '<input type="checkbox" class="fp-board-cb" data-b="' + k + '" checked>'
+                  + '<span class="fp-board-nm">' + esc(b.name) + '</span>'
+                  + '<span class="fp-board-rg">' + b.lo + '-' + b.hi + '</span>'
+                  + '</label>'
+              )).join('')
+              + '</div>'
+            : (state.isShenlun ? ''
+                : '<div class="fp-boards" data-fp="boards"><span class="fp-boards-tt">板块</span>'
+                  + '<span class="fp-boards-hint">未识别到板块，请用范围框勾选</span></div>');
+
+        const ov = document.createElement('div');
+        ov.id = 'fp-pickui';
+        ov.className = 'fp-pickui show';
+        ov.innerHTML =
+            '<div class="fp-pick-box">'
+            + '<div class="fp-pick-head"><div class="fp-pick-brand"><span class="fp-emoji">✨</span><span>自选题目导出</span></div>'
+            + '<span class="fp-pick-x" data-fp="x" title="关闭">×</span></div>'
+            + '<div class="fp-pick-bar">'
+            + '<button type="button" class="fp-batch" data-fp="all">全选</button>'
+            + '<button type="button" class="fp-batch" data-fp="none">全不选</button>'
+            + '<button type="button" class="fp-batch" data-fp="inv">反选</button>'
+            + '<button type="button" class="fp-batch-orange" data-fp="three">只导出三大块</button>'
+            + '<input type="text" class="fp-input fp-pick-range" data-fp="range" placeholder="或输入题号范围，如 1-10,15,20-25">'
+            + '<button type="button" class="fp-batch" data-fp="apply">按范围勾选</button>'
+            + '<span class="fp-pick-cnt" data-fp="cnt"></span>'
+            + '</div>'
+            + boardHtml
+            + '<div class="fp-pick-list">' + (rows || '<div class="fp-pick-empty">没有可选的题目</div>') + '</div>'
+            + '<div class="fp-pick-foot">'
+            + '<div class="fp-pick-opts">'
+            + '<label class="fp-check"><input type="checkbox" data-fp="cover"' + (coverDef ? ' checked' : '') + '> 包含封面页</label>'
+            + '<label class="fp-check"><input type="checkbox" data-fp="mat" checked> 包含材料</label>'
+            + '<label class="fp-check"' + (state.isShenlun ? '' : ' style="display:none"') + '><input type="checkbox" data-fp="ans" checked> 包含参考答案</label>'
+            + '</div>'
+            + '<div class="fp-pick-hint">范围写法支持 <b>1-10,15,20-25</b>；按<b>列表序号</b>勾选，原题号为纯数字时也会一并匹配</div>'
+            + '<div class="fp-pick-btns">'
+            + '<button type="button" class="fp-btn2" data-fp="cancel">取消</button>'
+            + '<button type="button" class="fp-btn2" data-fp="save">导出为 PDF</button>'
+            + '<button type="button" class="fp-btn" data-fp="print">排版并打印</button>'
+            + '</div></div></div>';
+        document.body.appendChild(ov);
+
+        const q = (k) => ov.querySelector('[data-fp="' + k + '"]');
+        const cbs = Array.prototype.slice.call(ov.querySelectorAll('.fp-pick-cb'));
+        // 板块复选框 ↔ 该板块下的题目复选框（双向同步用）
+        const boardEls = Array.prototype.slice.call(ov.querySelectorAll('.fp-board-cb'));
+        const boardCbs = boards.map((b) => b.idxs.map((i) => cbs[cbAt.get(i)]).filter(Boolean));
+        const cnt = q('cnt');
+        const refresh = () => {
+            let n = 0;
+            cbs.forEach((c) => { if (c.checked) n++; });
+            cnt.textContent = '已选 ' + n + ' / ' + cbs.length + ' 题';
+            // 板块状态由旗下题目反推：全勾 = 勾上，全不勾 = 取消，部分勾 = 半选
+            boardEls.forEach((el, k) => {
+                const list = boardCbs[k];
+                let m = 0;
+                list.forEach((c) => { if (c.checked) m++; });
+                el.checked = list.length > 0 && m === list.length;
+                el.indeterminate = m > 0 && m < list.length;
+            });
+        };
+        const setAll = (v) => { cbs.forEach((c) => { c.checked = v; }); refresh(); };
+
+        // 点板块 → 整块勾选 / 取消（半选状态点击后按浏览器默认变为全选）
+        boardEls.forEach((el, k) => {
+            el.addEventListener('change', () => {
+                const v = el.checked;
+                boardCbs[k].forEach((c) => { c.checked = v; });
+                refresh();
+            });
+        });
+
+        cbs.forEach((c) => c.addEventListener('change', refresh));
+        q('all').addEventListener('click', () => setAll(true));
+        q('none').addEventListener('click', () => setAll(false));
+        q('inv').addEventListener('click', () => { cbs.forEach((c) => { c.checked = !c.checked; }); refresh(); });
+        q('apply').addEventListener('click', () => {
+            const spec = parseRangeSpec(q('range').value);
+            if (!spec.size) { alert('请先输入题号范围，例如：1-10,15,20-25'); return; }
+            cbs.forEach((c, k) => {
+                const one = qs[k];
+                const byNum = /^\d+$/.test(one.num) && spec.has(parseInt(one.num, 10));
+                c.checked = !!(spec.has(one.seq) || byNum);
+            });
+            refresh();
+        });
+        // 只导出三大块：按板块识别结果勾选「言语理解与表达 / 判断推理 / 资料分析」，不再按题号硬编码
+        q('three').addEventListener('click', () => {
+            const names = THREE_BOARD_NAMES;
+            const targets = boards.filter((b) => names.indexOf(b.name) >= 0 && b.idxs && b.idxs.length);
+            if (!targets.length) { alert('未识别到「言语理解与表达 / 判断推理 / 资料分析」板块，请用范围框勾选'); return; }
+            setAll(false);
+            targets.forEach((b) => {
+                b.idxs.forEach((i) => {
+                    const c = cbs[cbAt.get(i)];
+                    if (c) c.checked = true;
+                });
+            });
+            refresh();
+        });
+        q('x').addEventListener('click', closePicker);
+        q('cancel').addEventListener('click', closePicker);
+        q('print').addEventListener('click', () => confirmPick(state, qs, cbs, 'print'));
+        q('save').addEventListener('click', () => confirmPick(state, qs, cbs, 'save'));
+
+        refresh();
+        pickState = state;
+    }
+
+    // 确认：收集勾选 → 过滤 items → 走原 buildHtml + 新窗口打印 / 导出 PDF
+    function confirmPick(state, qs, cbs, mode) {
+        const ov = $('fp-pickui');
+        const selected = new Set();
+        cbs.forEach((c, k) => { if (c.checked) selected.add(qs[k].i); });
+        if (!selected.size) { alert('请至少勾选一道题目。'); return; }
+        const pick = (k, def) => {
+            const el = ov ? ov.querySelector('[data-fp="' + k + '"]') : null;
+            return el ? !!el.checked : def;
+        };
+        runPicked(state, selected, {
+            cover: pick('cover', true),
+            material: pick('mat', true),
+            answer: pick('ans', true),
+        }, mode);
+    }
+
+    function runPicked(state, selected, flags, mode) {
+        const items = pickFilterItems(state, selected, flags.material, flags.answer);
+        const questionCount = items.filter((i) => i.kind === 'question').length;
+        if (!items.length || questionCount === 0) {
+            alert('筛选后没有可导出的题目，请重新勾选。');
+            return;
+        }
+        const opt = collectOptions();
+        opt.cover = !!flags.cover;      // 只覆盖封面开关，其余参数沿用面板当前设置
+        // 与「排版并打印 / 导出为 PDF」一致：试卷名读不到时先问用户，不静默印兜底名
+        if (!readPaperTitle()) {
+            const ok = confirm('题目已读到，但没有读取到试卷名（页面可能还没完全加载）。\n\n'
+                + '点「确定」继续生成（封面上会用「公务员录用考试试卷」）；\n'
+                + '点「取消」先刷新页面重试。');
+            if (!ok) { closePicker(); setStatus('已取消，请刷新页面后重试'); return; }
+        }
+        const html = buildHtml(items, opt, {
+            mode: state.isShenlun ? 'shenlun' : 'xingce',
+            output: mode,
+            questionCount,
+        });
+        const win = window.open('', '_blank');
+        if (!win) { alert('浏览器拦截了弹窗。\n请允许本站弹出窗口后重试。'); return; }
+        win.document.write(html);
+        win.document.close();
+        const matCount = items.filter((i) => i.kind === 'material').length;
+        setStatus('已选 <b>' + questionCount + '</b> 题' + (matCount ? '，<b>' + matCount + '</b> 份材料' : ''));
+        closePicker();
+        // 「导出 PDF」强制唤起打印对话框；「排版并打印」尊重面板「生成后自动唤起打印」
+        if (mode === 'save' || opt.autoPrint) printWhenReady(win);
+    }
+
+    /* ==================================================================
+     * 九、启动
+     * ================================================================ */
+
+    // 注：更新/注入机制回归 1.8.1 验证过的稳定逻辑（见 previewUpdate，重注入前删 5 个固定 id 再注入新版）。
+    // 1.8.7 初版曾自行加入 __FP_INJECTED__ / destroyOldInstance 防重接管，实测在「传新版后首次更新」场景
+    // 反而造成面板叠加卡死，故回退，不引入未经长期验证的注入机制改动。
+
+    // 1.8.8 —— 选项排布「按组统一」原则明确化：
+    // 列数由 layoutFor 按整组最长项（q.maxUnits / 大图）统一决定，整组共用同一 class，
+    // 因此同一道题的选项永远列数一致：要么都横排（grid-4 一行4个 / grid-2 一行2个），
+    // 要么都逐行独占（grid-1）。当组里有任一选项长到要独占一行时，整组走 grid-1，
+    // 其余选项也跟着逐行独占，绝不会出现「有的横排、有的折行」的参差。
+    // 注：曾尝试把 grid-2/grid-4 改成 flex:1 1 auto 做「逐选项自适应」，
+    // 结果把列数拆到每个选项头上、反而制造了组内参差，已回退为固定列宽。
+    // 另修一处：图形推理题选项图未抓取、只剩字母「A/B/C/D」时，pickOptions 仍因单字母例外
+    // 把 allImage 判为 true，致使 layoutFor 误套 140 特判把短选项顶成 grid-2；
+    // 现加 anyImg 信号，只有选项里真有 <img> 才按图宽估算，纯字母短选项正确归到 grid-4（一行4个）。
+
+    // 1.8.9 —— 极致省纸（ultra）四处留白根因修复，智能平衡（smart）零改动：
+    // ① 选项可拆页：canSplitNode 放开「纯文本长选项」在 ultra 下的行边界撕开（只影响单独成行的 grid-1 选项，
+    //    一行多选项因 cut 按「行」成块、撕开仅触发于单原子块，仍整行走，不会变 3+1）。
+    // ② 题号续排：题干被撕开时，**续排段不再印题号**（1.8.25 产品决定，见 splitTextAtom 注释）；
+    //    另加 sweepEmptyShells 兜底删掉重排中漏清的空题壳。
+    // ③ 长段填缝：ultra 撕开门槛 SPLIT_MIN 从 8% 压到 1.5%（约 1 行），下限 MINH 压到 14px（约 1 行），
+    //    页尾剩 1~2 行空位也能把单段长题干撕开续排，吃掉留白（多段题干本就按段成块、天然可跨页）。
+    // ④ 图文分离：drill 对「含 img 的纯容器」也往下钻，让文字段与图片段各自成独立原子；
+    //    粉笔题干外的 <div _ngcontent> 常把「文字 p + 图片 p」裹一起，此前焊成同一块致整题跟图翻页，
+    //    现文字先留本页、图片翻下页（行内公式 img 的 <p> 仍整段保留，不强行劈公式）。
+    // ⑤ 行内公式图估值修正：layoutFor 对「无可读宽度的小图」（maxImgW=0）的 imgNeed 特判值
+    //    从 140 降到 70。原值对行内分数/根号等小公式图（实际 ~35px 宽）高估约 4 倍，
+    //    页边距 ≥20mm 时把本该一行 4 个的短选项顶成 grid-2；70 足以容纳常见行内公式图，
+    //    同时在各页边距下均能归到 grid-4。有 width 属性的大图仍走 maxImgW*figScale 路径（封顶140）。
+
+    // 1.8.10 —— 行内公式图（flag="tex"）随文字大小缩放，消除「分数特别大」：
+    //    此前 .fp-opt img / .fp-stem img 用 max-width:140px + height:auto，让公式图按
+    //    原图像素（粉笔以 fontSize=18 渲染，分子/分母两行高约 45px）显示，在 15px 正文里
+    //    显得大近 3 倍、特别突兀。现加专属规则 img[flag="tex"]{height:1.15em;width:auto}，
+    //    锁成跟文字同高且随字号（用户面板设置）走 —— 仅公式图生效，配图（tarzan/images 无 flag）
+    //    与图形选项（.fp-opt-img）都不命中，保持 140×100 原样。vertical-align:-0.2em 做上下居中微调。
+
+    // 1.8.11 —— 分数图（\frac 等）仍偏高、且大字号下显得比文字小：
+    //    粉笔 tex 图的图底落在「分数底部」，整张分数在基线之上，统一规则的 -0.2em 仍明显偏高；
+    //    1.15em 又偏小，字号放大时比例更缩水。改法：提取时按 latex 内容给分数图打 fp-tex-frac
+    //    （普通行内符号 x/上标不打标），渲染层对分数图用 1.3em + vertical-align:-0.32em，
+    //    使分数横向中线≈文字中线、且随字号同步放大（值经无头浏览器实测：分数中心与纯文字中线偏移≈0）。
+    //    仅动公式图，配图与选项图零影响。
+
+    // 1.8.12 —— 真机确认 1.8.10/1.8.11 的公式图仍偏大+偏高：根因是粉笔公式图自带
+    //    内联 style="aspect-ratio: 20/43 !important; height: auto !important"（有时还有 width/height）。
+    //    内联 !important 优先级高于样式表 !important，脚本的 height:1.15em/1.3em 被它压住，
+    //    公式图按原图尺寸（~43px 高）显示 → 偏大；且没走 vertical-align → 偏高。
+    //    另：真实页面 latex 参数是编码 token（latex=HWUiiW14_...），读不到 \frac，
+    //    故 1.8.11 靠正则打 fp-tex-frac 的办法落空。改法：
+    //    ① tagTexFracImg 对每张 flag="tex" 图清除内联 aspect-ratio/width/height，让 CSS 真正接管；
+    //    ② 改用 data-fp-ar="宽/高" 的宽高比判断分数 —— 瘦高（高≥宽×1.4）即按分数打 fp-tex-frac，
+    //       套用 1.3em + vertical-align:-0.32em（横向中线≈文字中线）；其余公式图维持 1.15em/-0.2em。
+    //    配图（tarzan/images 无 flag）、图形选项（.fp-opt-img）均不命中，零影响。
+    //
+    // 1.8.13 —— 1.8.12 在真机仍偏大+偏高、且字号放大时分数相对文字更小：根因是分数识别只读了
+    //    data-fp-ar，而线上粉笔公式图往往不带该属性（只内联 aspect-ratio），漏判后分数退回原图 ~43px
+    //    （固定像素、不随字号缩放 → 字号越大对比越小）。改法：
+    //    ① 分数识别改用粉笔「内联 aspect-ratio」（永远存在）为主、data-fp-ar 兜底，不再漏判；
+    //    ② 不再依赖「清内联 + 类选择器优先级」链路，直接对每张 flag="tex" 图写内联 !important
+    //       （aspect-ratio:auto / height / vertical-align 等）——脚本后写的内联 !important 天然压过
+    //       粉笔内联 !important 与任何样式表，分数稳定 1.3em、横向中线≈文字中线、随字号同步放大。
+    //    配图与图形选项仍零影响。修正经无头浏览器实测（含「无 data-fp-ar」形态）。
+    //
+    // 1.8.14 —— 真机定位到 1.8.13「分数仍偏大、不随字号、不对齐」的真正根因（注：1.8.13 的
+    //    tagTexFracImg 其实已正确识别并写出 height:1.3em / vertical-align:-0.32em，问题出在下游）：
+    //    scaleFigures() 在 waitReady() 里被【轮询】执行（图片解码前每 250ms 一次，最长 15 秒），
+    //    而它的分支 `if (naturalWidth>0 && naturalHeight>0 && !getAttribute('data-fp-ar'))` 会对
+    //    没有 data-fp-ar 的图写 `height:auto!important` —— 后写的内联 !important 直接盖掉
+    //    tagTexFracImg 设好的 1.3em。真机 DOM 里那行 `height: auto !important` 正是它写的。
+    //    后果：① 高度退回粉笔原图像素（~43px 固定高，不随字号缩放 → 字号越大分数越小）；
+    //          ② 破坏竖向对齐；③ 图高被算成 0 时，paginate() 用 getBoundingClientRect 量高度会
+    //          严重低估块高 → 排版判断失真，大字号下出现大面积空白页。
+    //    改法：scaleFigures 里先判 `flag==="tex"`，是行内公式图就整段跳过（既不再写 height:auto，
+    //    也不参与 >150px 的宽度缩放），尺寸与对齐全权交给 tagTexFracImg。
+    //    实测（无头 Chromium，复刻 55 题形态）：修复前 height:auto → 计算高 0px；修复后稳定
+    //    1.3em，15px→19.5px、18px→23.39px、25px→32.5px 随字号同步；-0.32em 在各字号下
+    //    分数中线与文字中线偏差 ≤0.75px。
+    //
+    // 1.8.15 —— 1.8.10 以来「分数图一直偏小」的最后一块拼图：尺寸基准选错了。
+    //    分数是「分子/分母上下排布」的瘦高图，视觉尺寸取决于**宽度**，而旧逻辑一律按
+    //    **高度**锁 1.15em/1.3em —— 分数图宽高比约 0.47~0.67，按高度锁高后宽度只剩
+    //    0.6 字，所以怎么看都比文字小一圈。现按宽高比分三档（实测数据见 tagTexFracImg）：
+    //      ① 瘦高（h ≥ w×1.25，真实分数 20/43、29/43）→ 按**宽度 1em** 与文字齐宽，
+    //         高度按比例撑开（约 2.15 字），下沉 -0.7em 后中线与文字对齐（偏差 ≤0.75px）；
+    //      ② 常规符号（℃ / 单字母 / 上下标，约 1.0~1.33）→ 按**高度 1.15em** 与文字齐高；
+    //      ③ 长公式（宽/高 可达 6.7）→ 同样按**高度 1.15em**，宽度自然撑开 7.66 字，不会被压扁。
+    //    阈值 1.25（判定线 宽/高=0.80）落在真实分数(≤0.67)与符号(≥1.0)之间的空白带正中。
+    //    已知局限：极宽的多位数分数（如 12345/2，宽/高≈1.0）与符号尺寸无从区分，会落进②档；
+    //    粉笔 latex 是加密 token 无法读取内容辅助判断，此为当前信息下的最优解。
+    //    CSS 侧同步改为 width:1em/height:auto/-0.7em，与内联值保持一致，避免两边打架。
+    //
+    // 1.8.16 —— 真机仍「分数比文字小」的根因：提取时拿不到宽高比。
+    //    粉笔的 data-fp-ar 是**图片加载完成后**才异步补上的，脚本抓 DOM 时常常还没写上；
+    //    而内联 aspect-ratio 又已被分页逻辑写成 auto。于是 tagTexFracImg 的三个来源全部落空
+    //    （旧写法 `img.style.aspectRatio || data-fp-ar` 里 'auto' 是真值会短路掉后者）
+    //    → w=h=0 → 分数被误判成符号档 → 又变回「比文字小」。真机 DOM 佐证：img 上只剩
+    //    data-fp-w="1"、没有 data-fp-ar，样式是 height:1.15em/-0.2em（符号档的特征值）。
+    //    改法三处：
+    //      ① tagTexFracImg 三个来源逐个校验（属性 → 内联比例 → naturalWidth/Height），
+    //         任一项能解析出「宽/高」就用，不再被 'auto' 短路；
+    //      ② scaleFigures 里对 flag="tex" 的图，在图片解码后用真实像素**补判一次**并重设样式
+    //         （该函数由 waitReady 轮询调用，解码后才可信；注意它运行在生成页自己的 <script> 里，
+    //          取不到外层函数，故内联了一份等价逻辑，改判定时两处必须同步）；
+    //      ③ 分数下沉量不再写死，改按每张图的比例算：va = 常数 - (高/宽) ÷ 2（常数 1.8.17 实测校准为 0.383）。
+    //         比例不同高度就不同（20/43→2.15 字、29/43→1.48 字），写死一个 em 必然有一类错位。
+    //    实测（无头 Chromium）：分数 20/43 与 29/43 均 1 字宽、中线偏差 ≤0.31px；
+    //    摄氏度 / 长公式维持 1.15 字高、偏差 ≤0.75px；三档互不影响。
+    //
+    // 1.8.17 —— 真机新现象「同一道题里分数有大有小」的根因：**把解码中间值永久固化了**。
+    //    证据：54 题第 2 个分数（-2/3）在真机 DOM 上被写成 data-fp-ar="37/43"，
+    //    而同题的 7/9 是 20/43。37/43 → 宽/高 0.86，超过判定线 → 掉进「符号档」→ 该图只有
+    //    0.9 字高，旁边正常的分数是 1 字宽、2.15 字高，于是同题内一大一小。
+    //    37 是假宽度：图片解码没完成时浏览器会先返回一个中间值（解码完成后才回落到真实的 20）。
+    //    1.8.16 的两条路径都会把这个中间值**钉死**：
+    //      ① `setAttribute('data-fp-ar', naturalWidth+'/'+naturalHeight)` 写进属性，
+    //         下一轮进来发现「属性 == 当前读数」→ 判定已处理 → 直接跳过，错误永久保留；
+    //      ② 更隐蔽的是 inner aspect-ratio：它一旦有值就**参与固有尺寸计算**，
+    //         naturalWidth 会被反过来钳到由它推算出的宽度上，自己把自己锁死，永不纠正。
+    //    改法四条：
+    //      ① 抽出统一出口 applyTexSize(img, w, h) —— 三档判定与尺寸只此一份实现，
+    //         tagTexFracImg 与 scaleFigures 都调它（旧版两边各写一份，改一处漏一处）；
+    //      ② scaleFigures 对 flag="tex" 每轮都按**当前**读数重算重设（幂等，重复调用无副作用），
+    //         只记录信息性的 data-fp-tex-ar，不再用「属性是否相等」当跳过依据 ——
+    //         读数一旦被纠正，下一轮样式自动跟上，不会被历史错误绑架；
+    //      ③ 所有「按 naturalSize 写比例」的路径统一加 complete 闸门，
+    //         解码没完的图一律不碰（普通配图同理）；
+    //      ④ 判定线由 1.25（宽/高 0.80）左移到 1.65（0.606）。
+    //         原值太贴真实分数（0.67）且与「矮符号」24/30 只差在一条线上（实测 24/30 被判成分数档）；
+    //         0.606 离最近的符号 1.0 留 0.4 余量、离最宽的分数 ~0.8 留 0.2 余量，两边都不擦线。
+    //    另附：生成页新增 `html{text-size-adjust:none}`。浏览器「字号调整 / 文字缩放」会把
+    //    以 em 计尺寸的公式图一起放大（位图放大会发虚），关掉后打印页永远按脚本算的 px 字号渲染。
+    //    实测（无头 Chromium，四张同源 20/43 的图分别预置 data-fp-ar=20/43 / 37/43 / 内联 37/43 / 无属性）：
+    //    修复前两档分裂（16.0×34.4 与 8.5×18.4），修复后四张全部收敛到 16.00×34.39、分数档、va=-0.69em；
+    //    三档互不误伤：分数 1.00 字宽、摄氏度 1.15 字高、长公式 7.66 字宽。
+    //    对齐改按「墨迹中心法」重新校准：下沉常数 0.35 → 0.383（把「国」字画到 canvas 取墨迹上下
+    //    边界的中点作为文字视觉中心），分数中线偏差 0.70px → 0.11px，符号档 -0.2em 实测 0.25px。
+    //
+    // 1.8.18 —— 修复 1.8.17 引入的**致命回归**：生成试卷直接失败，报
+    //    `applyTexSize is not defined`。
+    //    原因纯粹是作用域：applyTexSize 定义在【生成页自己】的 <script> 里 ——
+    //    那是另一个文档、另一个作用域，而调用它的 tagTexFracImg 跑在油猴脚本的外层。
+    //    1.8.17 为了「判定逻辑只留一份」，把 tagTexFracImg 的三档实现删掉改成调 applyTexSize，
+    //    于是提取题干的第一步（pickStem → markTexFrac → tagTexFracImg）就抛错，
+    //    整个抓取流程中断 → 试卷根本生成不出来。
+    //    教训：这两段代码虽然逻辑相同，却**必须各存一份**，不能抽公共函数 ——
+    //    它们的宿主是「外层脚本」与「生成页脚本」两个互不可见的作用域。
+    //    修法：外层恢复一份自包含的三档实现（tagTexFracImg 内联，不依赖任何外部函数），
+    //    常量 TEX_FRAC_K / TEX_SINK_C 在外层与生成页各声明一次，两处行尾标了「同步点」，
+    //    改判定时搜索该词逐个核对（本次已核对：1.65 / 0.383 两处一致）。
+    //    另加装「跨作用域调用」静态自查：脚本里生成页 <script> 的函数名，不得在外层被调用。
+    //    验证方式（这次不再只看逻辑）：把整个油猴脚本放进 Node 的 vm 里跑通启动，
+    //    再用它生成的试卷 HTML 在无头 Chromium 里加载，页面内挂 window.onerror 捕手 ——
+    //    结果 CLEAN_NO_JS_ERROR，且 fp-tex-frac 正确打在分数图上、分页正常。
+    //
+    // 1.8.19 —— 彻底解决「有的分数正常、有的分数偏小」，方法是**照抄粉笔原生的做法**。
+    //    症状（用户实测）：分子分母只有一位数且无负号的分数正常；
+    //    带负号的、分子分母大于一位数的分数明显偏小。同一道题里分数大小不一。
+    //
+    //    真因：过去 8 个版本都用同一个错误模型 —— 拿「宽高比」把公式图分成
+    //    「分数档 / 符号档」，再各给一套尺寸。实测真机 22 张图，这个模型从根上就不成立：
+    //      20/43(3/2) → 判成分数 ✅ ；29/43(15/2) → 判成符号 ❌ ；37/43(-2/3) → 判成符号 ❌
+    //    用户的描述完全对上：能落进 20/43 这个比例的，恰好只有「一位数且无负号」那一种。
+    //    而分数外框 43、整式外框 20，差了两倍多却视觉一样大 —— 因为分数那 43px 里装的是
+    //    **两行**，每行仍是同一个字号。**外框高根本不是判断依据。**
+    //
+    //    粉笔原生怎么做的：把它的公式图逐张下载量测，答案很干净 ——
+    //      图片 URL 里写死 fontSize=18，**图片内部就是用 18px 字号渲染的**；
+    //      粉笔的 CSS 只做一件事：按原始像素 1:1 显示，**不做任何缩放**。
+    //      因为「图片内部字号」与「正文字号」本来就是同一个数，天然一样大。
+    //    所以正确做法只有一条：**等比缩放，让「图片内部字号」等于「当前正文字号」**。
+    //      缩放比 = 正文字号px / 18 → 显示尺寸 = 原始像素 × 该比值，用 em 写出。
+    //    这样正文 15px / 18px / 25px 下公式内部的字始终与旁边正文一样大，
+    //    分数、整式、长公式、多位数分数全部自动正确 ——
+    //    **不再需要任何「分档」「阈值」「特判」**，旧常量 TEX_FRAC_K / TEX_SINK_C 就此删除。
+    //    基线对齐同理：图片底边那一行像素就是基线（粉笔导出的图统一留 3px 下边距），
+    //    vertical-align 则按**每张图自己的底边留白**逐张算（实测 3~6px 不等）。
+    //    踩过的坑：1.8.19 初版写死一个 -0.06em 想「把 3px 下边距压掉一点」，
+    //    但真机各图留白并不统一（3/2 与 15/2 是 4px、-2/3 与 30° 是 3px、△AOD 是 6px），
+    //    写死一个数必然有的压多了、有的压不够 —— 于是水平线又歪了。
+    //    1.8.20 改为 canvas 逐像素量出每张图的实际留白，再逐张写内联下沉量。
+    //    实测五张图墨迹底边的离散度从 4px 降到 0.02px。
+    //
+    //    实测验证（真机那 5 张代表性公式图，三档字号）：
+    //      统一到 em 后跨字号完全一致 —— 3/2 恒为 1.111×2.389、
+    //      15/2 恒为 1.611×2.389、-2/3 恒为 2.055×2.389、
+    //      30° 恒为 1.722×1.111、△AOD 恒为 3.667×1.278。
+    //      18px 正文字号下缩放比精确为 1.0000（与粉笔原生 1:1 完全吻合）。
+    //      肉眼复核：3/2、15/2、-2/3 三个分数大小完全一致，底边都坐在基线上；
+    //      30°、△AOD 的墨迹与旁边「国」字同高。
+    //    回归防护：check-scope.js 增加两条 —— ①检测旧常量是否残留；
+    //      ②跨作用域调用检测（本轮负向验证过：故意注入一次 applyTexSize 调用能被抓出）。
+    /* ---------------- 1.8.33 启动重构：幂等 runInit + 路由变化重跑 ----------------
+     *
+     * ★ 这一节才是「课程题组抓不到」的**真正解药**（已用真机 DOM 实测确认）：
+     *   病根是**时序**，不是选择器 —— 外壳（.tis-container）一直在，只是脚本跑的时候
+     *   Angular 还没把 app-ti 塞进 DOM。实测对照（t30/probe_tiroot.js）：
+     *     题目已渲染 → 抓到 9 题 ／ 外壳都在但题目未渲染 → 抓到 0 题 ← 用户遇到的现场
+     *
+     * 真机控制台日志给出的顺序是关键证据：
+     *     路由事件结束：/remote/exam/https:%2F%2Fspa.fenbi.com%2Fti%2Fexam%2Fexercise%2F1_1_3sdocaj
+     *     [试卷排版打印] v1.8.32 已就绪  …/exercise/1_1_3sdocaj?routecs=xingce
+     * 「已就绪」打在路由结束之后 —— 说明脚本**不是**跑在页面加载前，
+     * 而是跑在 Angular 把题目塞进 DOM 之前。旧写法只在全站发一次初始化：
+     *     setTimeout(autoCount, 1200)  ← 一次性的，错过就没了
+     * 于是面板在、题数空、点生成报「没抓到题目」。
+     *
+     * 做法：把启动包成 runInit()，用 window.__fpInitUrl 记下「上次按哪个地址初始化过」，
+     *   地址没变就整个不动（幂等，重复触发不会叠面板）；
+     *   地址变了（课程页 → 题组 iframe 内路由跳转）就重新走一遍探测。
+     *   统计与标题本来就是轮询，重入无害。
+     *
+     * ⚠️ 刻意**不**用 setInterval 轮询 location.href 来兜底：
+     *   spa.fenbi.com 是 pushState 路由，轮询抓不到自身跳转；
+     *   而且会把 _ngcontent 变化之类的无关重渲染也算进来，反复重建面板 ——
+     *   典型的「看着聪明但会坑用户」的花活。只认真正会派发的事件，宁少不错。
+     */
+    if (!window.__fpInitUrl) {
+        Object.defineProperty(window, '__fpInitUrl', { value: '', writable: true, configurable: true });
+    }
+
+    // 进入做题页即自动统计题数 / 材料数并显示（轻量，不打扰）。
+    // 1.8.33：改成「轮询到有题为止」，并设 12s 死线，避免在非做题页上无限轮询。
+    function startPollCount() {
+        (function pollCount(tries) {
+            if (busy) return;
+            if (tries >= 24) return;              // 24 × 500ms = 12s 死线
+            setTimeout(function () {
+                Promise.resolve(autoCount()).then(function () {
+                    // 面板已显示题数 → 说明抓到了，停止轮询
+                    const el = $('fp-stat');
+                    if (el && /共\s*<b>/.test(el.innerHTML || '')) return;
+                    pollCount(tries + 1);
+                });
+            }, tries === 0 ? 800 : 500);
+        })(0);
+    }
+
+    // 把真实试卷名回填到面板（幂等，重入无害）。
+    // 不能用固定延迟：试卷名是 Angular 异步渲染的，写死 900ms 在慢机器／弱网上会跑空，
+    // 于是 readPaperTitle() 退到 document.title（粉笔的静态标题就是「粉笔题库」），
+    // 卷子封面上会印出一个毫无意义的「粉笔题库」。所以改成轮询，读到为止。
+    //
+    // 只有拿到**真正有意义**的试卷名才回填：
+    //   旧写法「元素一出现就取」会踩两个坑 —— 粉笔的元素常先以 title="null" 占位出现，
+    //   于是把假名字写进输入框；再叠加「拿不到就退 document.title」的兜底，
+    //   最终封面上印的要么是 null、要么是无意义的「粉笔题库」。
+    // 现在「值可用才写」，读不到就保持 placeholder（正在读取当前试卷…），
+    // 生成时会强制重新读一次，读不到就明确提示用户刷新。
+    function pollTitle(deadline) {
+        const el = $('fp-title');
+        if (!el) return;
+        // 用户已经改过或已回填过，不再动它
+        if (el.value.trim() && el.value !== TITLE_PLACEHOLDER) return;
+        const t = readPaperTitle();
+        if (t) { el.value = t; return; }
+        if (Date.now() >= deadline) return;   // 超时仍读不到：留空占位，交给生成时的提示
+        setTimeout(() => pollTitle(deadline), 400);
+    }
+
+    function runInit() {
+        const here = String(location.href);
+        if (window.__fpInitUrl === here) return;   // 同一地址重复触发：一个指头都不碰
+        window.__fpInitUrl = here;
+
+        // 面板可能已存在（同址重入或用户已打开预览）—— 有就只重挂统计，不重建
+        if (!$('fp-panel')) {
+            injectStyle();
+            const { panel } = buildPanel();
+            bindPanel(panel, $('fp-mask'), () => run('print'), () => run('save'), () => openPreview());
+            applySettings(readSettings());
+            syncShenlunUI();
+        }
+        startPollCount();
+        pollTitle(Date.now() + 10000);
+        checkUpdate();
+    }
+
+    // 路由监听：地址真的变了才可能重跑（runInit 内部还会再判一次，双保险）。
+    //   原生 popstate / hashchange 覆盖浏览器前进后退；
+    //   粉笔 SPA 自己的路由事件名字拿不到，试几个常见名，派发不了就静默跳过 ——
+    //   有原生这两个已够用，不为第三类事件写花哨兜底。
+    ['popstate', 'hashchange'].forEach((ev) => window.addEventListener(ev, () => runInit()));
+    ['fp-route-change', 'route-change', 'ng-router-change'].forEach((ev) => {
+        try { window.addEventListener(ev, () => setTimeout(runInit, 300)); } catch (e) { /* 忽略 */ }
+    });
+
+    runInit();
+
+    console.log('%c[试卷排版打印] v' + VERSION + ' 已就绪', 'color:#16a34a;font-weight:bold');
+})();    // 1.8.23  修好 1.8.22 的对齐：公式没错，但**一次都没生效**
+    //   用户反馈原话：「妈耶我不知道你改在哪里了……这个效果和刚才有任何区别吗，
+    //   完全一样，分数比他高那么多」。证据是他贴的真机 DOM ——
+    //   图片的 vertical-align 全是 -0.17em，正是 1.8.22 的兜底常量，
+    //   说明新写的 measureTex / texAlignEm **一次都没跑过**。
+    //
+    //   根因（无头 Chromium 复现）：tagTexFracImg 由 markTexFrac() 在**游离的 div** 上调用：
+    //       d = document.createElement('div'); d.innerHTML = html;   ← 图还没进文档
+    //       d.querySelectorAll('img[flag="tex"]').forEach(tagTexFracImg);
+    //   此时 <img> 尚未开始加载，实测读数：
+    //       游离节点 nw=0 complete=false ／ 插入文档同步读 nw=0 ／ 500ms 后 nw=20
+    //   而 1.8.22 的 tagTexFracImg 第一行就是
+    //       if (!(img.naturalWidth > 0 && img.naturalHeight > 0)) return;
+    //   → 尺寸与对齐一个都没写，全部落空。
+    //
+    //   修法一：**尺寸不再依赖解码**。新增 texNatSize()，按可信度从四个来源解析原始宽高：
+    //       ① data-fp-tex-ar  ② data-fp-ar  ③ 内联 aspect-ratio  ④ naturalWidth/Height
+    //   前三个是属性，不依赖图片解码，游离节点里也读得到 —— 尺寸照写不误。
+    //
+    //   修法二：**对齐改成两档精度**，关键在于认清「哪些量真的需要图片像素」：
+    //       图高(em)        ← 来自属性，不需要像素
+    //       文字视觉中线    ← canvas 画「国」字量得，与公式图无关
+    //       墨迹中线距图顶  ← **只有这个需要读图片像素**
+    //   于是：
+    //       ① 图已解码 → va = charMid/fs − 图高(em) + 墨迹中线距图顶(em)   精确
+    //       ② 图未解码 → va = charMid/fs − 图高(em)/2                      近似
+    //   两档配合：游离阶段先用 ② 保证「有值可用」，生成页 scaleFigures 在解码后
+    //   调 applyTexSize 用 ① 精修一次（该机制 1.8.17 已建立，幂等）。
+    //
+    //   为什么 ② 必须有 ① 兜着（实测数据）：**墨迹中线并不在图的正中**。
+    //   逐张量五张真机图的「墨迹中线距图顶 − 图高/2」：
+    //       3/2 −0.5px ／ 15/2 −0.5px ／ −2/3 0px ／ 30° 0px ／ **△AOD −1.5px**
+    //   只用 ② 时 △AOD 实测偏低 **1.53px**（肉眼可见）；走 ① 后降到 0.02px。
+    //   所以能读像素时一定不能偷懒用 ②。
+    //
+    //   兜底链收敛为两级（**删除 TEX_SINK_FALLBACK**）：
+    //       ① 正常：上面两档
+    //       ② canvas 不可用 → TEX_CHAR_MID_REF(0.39) − 图高/2
+    //   绝不再退回「按底留白贴基线」（1.8.20 的老毛病：会把分数压到基线上，
+    //   正是用户报过的「分数比文字低一大截」）。
+    //
+    //   为什么公式里不再出现「图墨迹中线」也能算准 va：
+    //     1.8.22 写的是 va = charMid/fs − 图高 + inkMidEm，要求先知道 inkMidEm；
+    //     1.8.23 拆成两档，解码前用图高中点代替 inkMidEm，解码后补上真值。
+    //     两者在解码后数学完全等价，差别只在「解码前也有值可用」。
+    //
+    //   实测（无头 Chromium，脚本真实产出值）：
+    //     · 游离节点专项：五张图在 naturalWidth=0 时**全部写出**正确的
+    //       width/height/vertical-align（1.8.22 在这里全军覆没）；
+    //     · 4 档字号（18/22/25/32px）× 5 张真机图 = 20 组，图墨迹中线 − 文字视觉中线
+    //       偏差 **全部 ≤ 0.02px**；
+    //     · 参考线复核（蓝线=文字中线、红线=图中线）：两行共 6 张图，偏差全是 **+0.00px**。
+    //
+    //   已知未改（用户 2026-09-22 明确表示「不改这条了」）：
+    //     分数图高 2.389em > 文字行高，即**分数比文字高**。这是 1.8.19 定的
+    //     「等比缩放」（显示尺寸 = 原图像素 ÷ 18）的固有结果，好处是多位数与负号
+    //     分数都能正确处理。若日后要改，方向是「宽度封顶」：等比但 w ≤ 1.45em，
+    //     可把 3/2 与 15/2 的宽度差从 1.45 倍压到 1.3 倍以内，且不会被压扁。
+    //
+    //   踩坑记录（本轮新增两条）：
+    //     ① 本段注释位于**外层模板串内**，注释里出现反引号会提前闭合模板串
+    //        （` 在模板串里是定界符）→ node --check 报 Unexpected token 'if'；
+    //     ② 造测试页时 `+'\n'+` 后面紧跟 `+// 注释` 会让 JS 把注释后的表达式
+    //        接成一项，拼接结果里冒出字面量 NaN —— 注释要挪到表达式外面。
+    //
+    // 1.8.22  行内公式图对齐重写：让「图的墨迹中线」精确落在「文字视觉中线」上
+    //   需求原话：「分数的横向中线 和相邻文字的横向中线没有对齐，不在一条线上」。
+    //   注意这是**纵向**问题 —— 说的是分数那条水平分数线，要与相邻文字的水平中线重合，
+    //   不是图在左右方向的位置（实测图片左右留白本就对称：5/5、5/5、4/5、3/4、4/4）。
+    //
+    //   1.8.21 为什么错：分数用 vertical-align:middle。middle 是让图在**行盒**里居中，
+    //     而行盒中心 ≠ 文字视觉中心 —— 汉字有上下不对称的字体留白（实测「某」上 16px、下 1px），
+    //     视觉中心在基线上方约 0.4 个字号高，比行盒中心低。实测 middle 的偏差：
+    //       18px → -1.38px、25px → -2.07px、32px → -2.77px
+    //     **偏差随字号线性放大** —— 字号越大错得越明显，所以小字号下看着"还行"。
+    //
+    //   1.8.22 怎么修：不分类，改用一条公式让图墨迹中线对齐文字视觉中线：
+    //       va = (文字视觉中线 / 字号) − 图高(em) + (图墨迹中线距图顶 / 18)
+    //     单行公式的墨迹几乎占满图高 → 后两项相消，结果趋近"贴基线"；
+    //     分数墨迹居中且图高很大 → 结果自动变成大负值，把图中线顶到文字中线上。
+    //     也就是说「贴基线」与「行内居中」本来就是同一条公式的两个特例，
+    //     1.8.19~1.8.21 反复纠结的"怎么分类"是个伪问题 —— 不需要分类。
+    //
+    //   文字视觉中线**运行时用 canvas 实画一个「国」字量出来**，不写常数：
+    //     实测「文字墨迹中线 / 字号」比值在 0.375~0.425 之间浮动（±6%），
+    //     因为汉字墨迹底边距基线随字号在 1~3px 间非整数变化。写死常数必在某段字号失准
+    //     （实测固定 -0.80em 时，16~20px 偏差 ≤0.26px 很准，但 22px 起涨到 +0.8~+1.5px）。
+    //     canvas 实测则任何字号、任何字体都准。
+    //
+    //   踩坑记录（都花了时间，值得记下）：
+    //     ① **顺序**：必须先钉死图片尺寸（会触发回流），**再**量基线与文字中线。
+    //        反过来先量后改，回流会让基线移动，算出的 va 全错（实测偏差涨到 ±18px）。
+    //     ② canvas 量图片墨迹时，画布要按**自然尺寸**建、且 drawImage 显式给目标宽高，
+    //        否则图会被按渲染尺寸拉伸，量出的墨迹高离谱（实测 43px 的图量成 648px）。
+    //     ③ 量文字墨迹时基线要放在画布纵向中部偏下（本实现取 2 倍字号处），
+    //        否则大字号下字形会超出画布顶部，量不到上边界。
+    //     ④ 参考字选「国」：全包围结构，墨迹范围最贴近汉字的视觉中心，比「某」更稳。
+    //
+    //   实测结果（外层与生成页两份实现一致，四字号端到端验证）：
+    //     图      墨迹高   18px        22px        25px        32px
+    //     20x43    36     -0.8333em   -0.8586em   -0.8622em   -0.8472em
+    //     29x43    36     -0.8333em   -0.8586em   -0.8622em   -0.8472em
+    //     37x43    37     -0.8056em   -0.8308em   -0.8344em   -0.8194em
+    //     31x20    14     -0.1667em   -0.1919em   -0.1956em   -0.1806em
+    //     66x23    14     -0.3333em   -0.3586em   -0.3622em   -0.3472em
+    //   全部 20 组「图墨迹中线 − 文字视觉中线」偏差 ≤ 0.02px。
+    //   像素级复核：截图里 3/2 分数图与左侧汉字的墨迹中线 y 完全相同（+0.00px）。
+    //
+    //   常量：TEX_BASE_PX / TEX_REF_CHAR / TEX_CHAR_MID_REF（两处各声明一次，标了「同步点」）
+    //   函数：texNatSize（解析原始宽高）/ measureTex（图片墨迹）/
+    //         measureCharMid（文字视觉中线）/ texAlignEm（解 va，两档精度）
+    //
+    // 1.8.21 —— 对齐规则改按需求分两类（单行贴基线 / 分数行内居中）。
+    //    需求原话：① 单行公式（30°、△AOD）图片底部与文字基线保持一致；
+    //             ② 分数这类「高度明显大于行高」的图，应在行内垂直居中
+    //                （图垂直中心线 = 行水平中心线），而不是顶对齐或底对齐。
+    //    怎么分类？用**墨迹高度**：实测分数墨迹高 36~37px、单行公式 14px，两簇零重叠；
+    //    取阈值 24px（约 1.33em，正落在两簇之间的空白带）判「是否分数」。
+    //    为什么不用外框高：粉笔导出的图上下都有留白且留白不固定（3~6px），
+    //    外框会把两类图拉进 20~43 的连续区间，分不干净；墨迹高才是干净的两簇。
+    //    实现：分数写 vertical-align:middle；单行仍按**自己**的底边留白下沉贴基线。
+    //    行距影响（已与用户确认「接受行距被撑开」）：分数图高 2.389em > 行盒 1.6em，
+    //    含分数的行会被撑开到图片高度（18px 字号下 28.8px → 51.8px）；
+    //    不含分数的行**完全不受影响**，分数行之后的行距也自动恢复。
+    //    实测（18px / 25px 两档字号，脚本真实产出值）：
+    //      分数 3/2、15/2、-2/3 —— 图中心 − 行中心 = 0.00px（完全居中）；
+    //      单行 30°、△AOD —— 图墨迹底 − 基线 = 0.00 ~ -0.02px（完全贴平）。
+    //    ⚠️ 踩坑记录：中途给 CSS 兜底块写了一条 vertical-align:baseline，
+    //    结果与上面「普通配图 vertical-align:middle!important」的通用规则打架，
+    //    把公式图的 vertical-align 顶成了 baseline，居中直接失效。
+    //    教训：公式图的对齐**只由 JS 内联值决定**，样式表里一个都别写。
+    //
+
