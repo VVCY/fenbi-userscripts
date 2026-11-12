@@ -710,10 +710,10 @@
           <b id="upName">粉笔自动全开草稿</b>
           <span class="new-badge">最新</span>
           <span class="verbox">
-            <span class="v-old">v2.8.15</span>
-            <span class="v-new">v2.9.23</span>
+            <span class="v-old">v2.9.25</span>
+            <span class="v-new">v2.9.45</span>
           </span>
-          <span class="up-date" id="upDate">2026 年 11 月 1 日</span>
+          <span class="up-date" id="upDate">2026 年 11 月 12 日</span>
         </div>
         <div class="up-demo"><iframe data-src="demo/09-draftpad.html?embed=1" title="最新功能演示" scrolling="no"></iframe></div>
         <ul class="up-items" id="upItems"></ul>
@@ -809,7 +809,7 @@
       id: 8270, name: "粉笔自动全开草稿", cat: "刷题辅助", glyph: "草",
       desc: "进页面自动展开全部草稿，每题配 ABCD 字母框和笔刷面板。针对平板手写做了指针去重，Apple Pencil 和触屏笔都能一笔画成一条线。",
       tags: ["手写草稿", "平板适配", "性能优化"],
-      installs: 906, updated: "5 天前", demo: "01" },
+      installs: 1621, updated: "刚刚", demo: "01" },
     {
       id: 8216, name: "粉笔自由折叠", cat: "刷题辅助", glyph: "折",
       desc: "题号一点就收起题干，悬浮显示全站正确率。题目、答案、解析三组开关，还能只看错题，↑↓ 直接切题。",
@@ -970,6 +970,18 @@
   /* ---------- 更新记录 ---------- */
   /* 最新一条在最前面；每次发版往数组最前面加一条就行 */
   const UPDATES = [
+    {
+      date: "11-12", full: "2026 年 11 月 12 日", name: "粉笔自动全开草稿", glyph: "草",
+      cat: "刷题辅助", prev: "2.9.25", ver: "2.9.45",
+      sum: "资料分析分栏 + 公式大全，公式里的分数终于上下对齐",
+      note: [
+        "资料分析进了分栏就能左右两栏连着写，笔从左边一路划到右边不再断开，撤销一次撤整笔",
+        "顶栏新增公式大全：8 组 53 条公式、百化分 44 个分数一屏看完，不用滚",
+        "题干和选项会自动放到最大：进场按屏幕算一遍，字尽量大、还保证一屏装下",
+        "公式里分数的分子分母现在严格等大、居中，百化分那页本来就齐",
+        "考试倒计时直接显示在顶栏，笔迹粗细按钮改叫「细 / 粗」，Aa 里只剩字号和栏宽"
+      ]
+    },
     {
       date: "11-01", full: "2026 年 11 月 1 日", name: "粉笔自动全开草稿", glyph: "草",
       cat: "刷题辅助", prev: "2.8.15", ver: "2.9.23",

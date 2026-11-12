@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         粉笔自动全开草稿
 // @namespace    marvis.fenbi.enhance
-// @version      2.9.23
-// @description  页面加载后自动打开全部题的草稿；每题注入 ABCD 字母选择盒（D 后带「下一题」），草稿画布锁定为题干+选项高度；新增「笔刷设置」面板（黑/蓝/红笔色切换 + 粗细无级调节）；MutationObserver 适配 SPA 增量渲染，按题目作用域去重；同步 canvas#draft 绘图缓冲区尺寸为容器显示尺寸，修复退出草稿重开后笔迹被垂直压缩；新增 ABCD 点击按钮本身变色（背题对错 / 做题选中），修复判分重建选项节点后 ABCD 按钮不变色；退出重进后按页面既有作答状态自动回填 ABCD 按钮颜色（做题选中深蓝 / 背题对错绿红）；修复做题模式退出重进后 ABCD 按钮空白不回填：选中态改多信号识别（checked 属性 / aria / class），MutationObserver 增补属性级监听并按题精准同步，定时补偿改为前 30 秒持续扫描 + pageshow/visibilitychange/focus 兜底；新增资料分析「一拖五」支持：每个子题独立注入字母盒与草稿画布（tab 切换即就位），「下一题」优先推进组内子题，材料区配独立草稿画布（可完全打开、五题共享、笔迹存 localStorage 退出重进重放），隐藏会吞掉全组指针事件的组级原生草稿；新增性能护栏：草稿与画布只在题目接近视口时才自动创建，低配环境不再 110 个画布全开卡死；平板 Apple Pencil 笔迹改 Catmull-Rom 样条消除折线，原生草稿路径加合并采样还原/防切笔/收笔兜底；新增局域网自动更新地址；v2.8.11 修平板笔迹「一条笔画成两条交错的线」：Apple Pencil 会同时产生 pen 与 touch 两路指针事件，此前两路被一起喂进同一点序导致来回重描，现按 pointerId/pointerType 锁定本笔指针并对同一采样坐标去重。v2.8.12 笔迹管线去浏览器化：跨 world 实例守卫（DOM 属性标记，防重复注入）；会话期间原生草稿画布静音（画者独占，治「两个画者各画一遍」）；归属判定不再依赖 pointerType（避免第三方 WebView 壳里把笔画整段切掉）；采样去重放宽到 0.5px 并新增回访检测（治重复/乱序投递导致的重描）；自适应「触控笔被报成 touch」的设备（把触摸当笔接管）；新增胶囊面板「笔迹自检」（采集指针流分布/采样密度/原生画布像素变化，跨 world 可读）。v2.8.13 依据真机自检数据（Via 报 pen 但采样时没开书写会话）重做笔迹稳健性：原生补密改为幂等（按已投递坐标+区间投影判定，杜绝同一物理采样被补投两遍导致粉笔画出两条交错的线）；归属判定允许浏览器在一笔之内更换 pointerId（不再把笔画截断成直线）；采样去重改为 1px 距离判定；原生画布静音改为只在「可书写」态生效（修 pass 态手指写不了原生草稿的回归）；自检新增指针生命周期台账/事件时间线/自绘笔台账/重复投递嫌疑判定与 captureValid 标志。v2.8.14 依据 Via 真机「有效采样」自检数据修掉「一条笔画成两条交错的线」的真正成因：原生补密的已投递坐标表在每次事件后重建时被丢弃，幂等防线只在单个事件内生效、跨帧完全失效，于是浏览器已经独立投递过的同一批真实采样又被补投一遍（铁证：同一批 14 个采样在相隔 1ms 的两个时间戳里各出现一次；补投 441 点而幂等只挡下 57 点）；现 sent 随笔画继承并把保留上限提到 800，同时补记原生路径的合并采样密度、时间线区分合成事件与原始事件、自检新增「补投/采样」比值指标。v2.8.15：胶囊面板里的「笔迹自检」入口默认隐藏（功能代码全部保留，需要时把 PENDIAG_ROW_VISIBLE 改回 true，或直接调用 __MARVIS_FENBI_PEN__()）。v2.8.16 笔迹快照：撤销/反撤/清空后粉笔会把全部笔迹按当前笔色单色重画（笔画数据里没有颜色字段，多色是本脚本 ctx hook 画时改写的），现每笔收笔后拍画布位图快照入档，检测到粉笔重绘（轮询对比内容，实测其重绘晚到约 0.5s）就把对应时刻的彩色位图原样贴回，多色笔迹在撤销/清空后不再塌成一种颜色。v2.8.17 防闪遮罩：粉笔的重绘晚到约 0.5s，期间画布先是单色再被贴回彩色 → 用户看到闪一下别的颜色；现点击撤销/反撤的瞬间就把目标状态截图盖在画布上方（veil，pointer-events:none），粉笔的单色重绘被完全遮住，快照贴好后摘掉，全程无闪。v2.9.2 修分栏草稿三个致命问题：① 组壳自己带着行内 !important（width:100%/left:auto）把样式表压死，组壳停在静态位置、宽 1905px，右栏连带滑块被推出视口 —— 用户看到的「右面被裁剪」「没有拖动按钮」都是它；现改用行内 setProperty 把 left/right/width 钉在视口上，看门狗每 700ms 按一次。② 画布原来铺满整栏还吃事件，右边选项点不动、手指也滚不动；现画布 pointer-events:none，事件改挂滚动容器：手指=原生滚动/点选，笔=写字（仅在本会话见过 pointerType=pen 时区分），抬笔后 420ms 内的 click 一律吞掉防误点。③ 顶部草稿栏补回笔色三圆点与粗细 A−/A+（原笔色面板在页面 header 上被顶栏盖住），右栏内容加 max-width:100% 治横向撑破，滑块 7px→12px 并加 26px 透明热区，不能滚时也显示淡色轨道。v2.9.3 分栏列宽自适应：不再写死左右比例，按「屏幕宽度 + 这一组内容」现算——屏越窄越把空间让给题目（<720 给右栏 60%），材料里有图/表左边加权，选项被折成多行右边加权，夹在 30%~60% 之间并保每侧最小宽；转屏/改窗口自动重算。分隔条手拖过就记住比例（localStorage），顶栏新增「⇔」按钮一键回到自适应（手动态按钮变橙色提示）。v2.9.4 修分栏草稿「触摸冲突 + 笔断触」：① 手指一律完全交还原生——不再用接触面宽度去猜笔，实测 CDP 与部分 WebView 把手指 width 也报成 1~2px，猜错的代价是手指滑动被 preventDefault 吃掉、页面 body 反而滚了 385px 而两栏纹丝不动，还顺手画出一道线；现在只有 pointerType=pen（或显式开 localStorage[marvis-app-touchpen]=1）才写字。② 进入分栏时锁住 html/body 滚动并给两栏加 overscroll-behavior:contain，栏内滚到底不再链式带动页面。③ 断触根因是收笔严格比对 pointerId，浏览器一笔内换 id 或手掌触发 pointercancel 就永久漏收，此后每一笔都被「已有笔画」挡掉；现按指针类型收尾并允许一笔内换 id。④ 合并采样补点（getCoalescedEvents 逐点 0.5px 去重），快速运笔不再出现折角与空隙。⑤ 抬笔后吞 click 改为「只吞落在刚写的笔画 bbox 上」的，用笔点选项不会再点不动；单点（笔点选项）不再被当成一笔。v2.9.5 胶囊面板里的「分栏草稿 APP式」改为默认打开（只有显式关过才记成关闭），不再需要先去面板里翻开关。v2.9.6 修 v2.9.4 带进来的两个回归（同根）：① 两栏的 touch-action 从 pan-y pinch-zoom 改回 auto —— touch-action 在 pointerdown 之前就替浏览器承诺了「这个手势是平移」，之后 preventDefault 收不回来；iPad 上 Apple Pencil 拖动本身就是可滚动手势，于是笔一落就被拿去滚屏、pointer 流随即 pointercancel、笔画只剩 1 个点被丢弃，用户看到的正是「用笔写也变成触摸的了」；同一份声明还会让 iOS 在 -webkit-overflow-scrolling:touch 的内层容器上整块失效，手指划不动、只剩拖滚动条。② 新增两条兜底：笔写期间把栏位 scrollTop 钉住（任内核把笔当滚动也退回去），手指滚动走「原生优先 + 失效接管」——先观察原生是否真的滚，只有连续 140ms 手指移动而 scrollTop 不动时才由脚本自己算 scrollTop 并补惯性，原生正常的设备一根手指都不碰。v2.9.7 按「笔只写字、绝不拖页面」这条底层语义重做手势分工：两栏内容区 touch-action 改为 none （浏览器在这些容器上彻底不做手势滚动，笔的 pointer 流不会再被抢走导致 pointercancel 断笔），手指滚动改由脚本全权负责（1:1 跟手 + 抬手惯性，移动不足 8px 仍算点击所以选项照常点得动，笔及其 touch 兼容流一律不参与），两个滚动条的拖动不受影响、手指和笔都能拖；另加兜底：个别不认 touch-action 的内核若原生仍在滚，检测到 scrollTop 被外部改走就立刻交还控制权，绝不与原生抢。v2.9.8 补「手指不许穿透」：分栏草稿展开后是一张盖在题目上的纸，笔在上面写、手指只负责滚（含拖两侧滚动条），不该顺手点到下面那一层的选项 / 收藏错题 / 子题 tab —— 之前把手指完全交还原生，等于纸是透明的，手掌一搭就把答案改了；现在在滚动容器捕获阶段断掉触摸的 pointerdown 与随后合成的 click，笔与鼠标一律放行（笔点选项照常有效），顶栏与两颗滚动条不受影响；同时把 setPointerCapture 从 pointerdown 推迟到「真的开始画」之后——指针捕获会把随后合成 click 的 target 改成滚动容器，导致笔点选项永远点不中（这是 v2.9.4 起就存在的隐蔽问题）。v2.9.9 按「草稿打开后手和笔完全一样」重定稿：不再按 pointerType 分流 —— 落在内容区的任何指针（手指、笔、鼠标左键）一律写成笔迹，pointerdown 与合成 click 都在滚动容器捕获层截住，下面的选项 / 收藏错题 / 子题 tab 一个也收不到；内容区彻底没有手势滚动（touch-action:none + touchmove 兜底），滚动只剩两个入口：左右两侧的滚动条，手指和笔都能拖。同步把「触摸当笔」开关、手指滚动接管（跟手/惯性/原生判定）整段删掉，改为单一语义，并保留 Apple Pencil 双路指针去重（pen 一到就丢弃先到的 touch 笔画，避免两条交错的线）。v2.9.10 修分栏草稿「书写断触」：① 每 700ms 的看门狗在笔写期间不再量画布尺寸、不再整屏重绘 —— appSizeSide 会把画布高度临时压成 0 去量内容高，栏位 scrollHeight 一抖、scrollTop 被夹回去，iPadOS 看到滚动就把笔的指针流 pointercancel 掉；而 appRedraw 又会清空画布重画，那时正在写的这一笔还没进 acts，等于把写到一半的墨迹抹掉。② 重绘时把「正在写的这一笔」一并补画，任何一次重绘都不再吃掉在写墨迹。③ pointercancel 不再当抬笔：系统 cancel 之后常用新的 pointerdown 把笔交回来，以前一 cancel 就收笔、新 down 又开一笔，一条连续的线被切成一段一段；现在 cancel 只摘滚动手闸并标成孤儿笔，下一次 down 落在上一笔落点 48px 内就续着画同一笔，离得远才收尾。④ 去掉「多指只认主指」的准入 —— 手掌在屏上时它会误挡笔，而「笔接管触摸笔画」那条规则已经足够拒绝第二支指针。v2.9.11 分栏草稿的答题按钮全部搬进顶栏：分栏打开后内容区就是一张纸，里面的 ABCD 字母盒与 标记/草稿/收藏 三个图标全被自家的纸挡住点不动，现顶栏加一颗题号按钮（自动跟随右栏滚动显示当前子题，如「117.▾」），点开是答题面板——本组五道题各一行，行内直接点 A/B/C/D 作答（走原生 label 路径，判分对错与重选回填口径不变）、点题号把右栏滚到那道题、行尾带 标记 与 收藏 两个图标代点原生按钮；点字母只改答案不跳画面，点空白处收起。内容区里那排失效的字母盒与三个图标在分栏模式下一并隐藏（退出分栏自动恢复）；资料分析组内的「下一题」按钮去掉（五题堆在同一栏靠滚动翻，普通单选题照旧保留）。为了让面板代点的原生 click 能穿过自家的纸，新增 appClickBypass 放行计数。v2.9.12 ① 分栏草稿里把每道题的 ABCD 字母盒放回内容区并让它真能点 —— v2.9.11 为了「搬到顶栏」把它整排藏了，用户反馈「这里连按钮都没有了」；字母盒是脚本自己注入的 UI，现在进纸的白名单（appInOwnUI），点头母只作答不落笔，合成 click 走 appAllowOnce 双层放行，按钮也放大到 30px 好按。顶栏题号面板照旧保留（标记/收藏仍在面板里）。② 修「点左上角叉退出后被送回第一题」：进分栏时把 html/body 的 overflow 锁成 hidden，WebKit 顺手把文档滚回 0，而五道子题在展平模式下是页面上顺排的，一退出页面就停在最上面。现在退出前记住正在看的那道子题，退出后按它的绝对位置把页面滚回去（原生 tab 模式则切回对应 tab 并滚容器）。v2.9.13 分栏草稿里把 ABCD 字母盒与标记/草稿/收藏三个图标彻底隐藏，并把「笔写到题目左上角就断」修掉：v2.9.12 把字母盒放回内容区还给到 z-index:260，它盖在画布（z-index:5）上面 —— 笔落上去时命中盒子、被判成「点了自家的 UI」而不落笔，从旁边写过来的墨迹又被它整片遮住，看着就是笔一触到那块就断；现在字母盒用 display:none 完全退出布局与命中，画布 z-index 提到 60（题内任何注入元素都压不住墨迹），纸的白名单只留顶栏/两颗滚动条/答题面板，并把内容区里的原生控件统一设成 pointer-events:none —— 笔落在题目里的任何位置（题号、题干、选项、图标原位）都是写字。答题改走顶栏题号按钮弹出的面板（点字母作答、点题号跳题、行尾标记/收藏）。v2.9.14 把「分栏默认打开」真正落到实处：以前只是开关默认开，实际还得手动点题旁的笔图标才会进分栏，用户以为开着、其实在写粉笔原生草稿 —— 原生草稿只覆盖它自己那一小块，写到别处就断，看着就是「这块没有草稿覆盖着」；现在资料分析组一进视口就自动进分栏（用户点 × 主动关掉的组本次页面会话不再自动进，刷新后恢复；结构不支持或打开抛错只试一次并 toast 报错），另外看门狗发现顶栏被页面重渲染干掉时会自动重建，不再出现「分栏还在、按钮没了」。v2.9.15 修分栏草稿里「那块区域写不出 / 写的字像被什么挡住」—— 真凶是粉笔页面上常驻的透明覆盖层：实测在选项上做 elementFromPoint，命中的是 div.modal-overlay 这类铺满区域的空壳（z-index 动辄 1000+）。① 落笔监听从「滚动容器」提到 document 捕获层，落点只按坐标归属到左栏/右栏 —— 覆盖层盖在哪儿都拦不住，以前这类区域 pointerdown 的传播路径绕开了滚动容器，我们根本收不到事件，那块地方怎么写都不出墨；② 画布 z-index 60 → 2147483100（组壳已把整块钉在 2400 这一档，画布在组内取最高），任何页面覆盖层都压不住墨迹，以前墨迹被透明/半透明覆盖层整片遮住，看着就是「有东西挡住我的字」；③ 画布高度改量「真实内容最底部」（一路往最后一个可见后代钻）而不是宿主的 scrollHeight —— 宿主在 flex 布局里会被压成一屏高，内容溢出却不撑高 scrollHeight，画布只铺一屏，往下滚到第 117/118 题再写就落在画布外面；同时按边长自动把 dpr 降到 1，避开 iOS canvas 16.7M 像素上限。v2.9.16 按用户要求收掉三处冗余：① 取消「资料分析组一进视口就自动进分栏」—— 这是 v2.9.14 自作主张加的，现在回到「点题旁的笔图标才进分栏」；② 胶囊设置面板里的「资料分析 · 1拖5」开关已隐藏（板块恒为开启，存量存过 0 的会被清掉，免得面板里没有开关、板块却静悄悄不工作）；③ 分栏顶栏的「笔」「橡皮」两颗按钮隐藏 —— 橡皮从未实现（disabled、点了没反应），笔是唯一模式、恒亮，两者都是空操作；列宽自适应按钮与粗细数值照旧保留。v2.9.17 把「答题入口 + 草稿纸」并成一层：顶栏原来那颗「117.▾」按钮和它弹出的五行面板整个删掉，改成五颗题号按钮（一道题一颗，segmented 紧凑样式，竖屏 768/810 也放得下）——点谁滚到谁，并弹出那道题专属的草稿纸；纸是半透明白（约 90%）的浮层，纸头一行就是这题的 ABCD / 标记 / 收藏，×收起、拖纸头移动、右下角拉大小（位置大小存 localStorage，换题不重置）。每题的笔迹分开存（localStorage 里 sheets[题号]），撤销/反撤/清空作用于「眼前这张纸」；纸收起时仍按旧语义作用于左右两栏。纸跟着当前题走：滚动到下一题，纸就换成下一题的（笔写期间有滚动闸，不会滚）。v2.9.18 纸头再添两颗：①「调大小」—— 点一下进入调整模式，纸的四角与四边中点长出 8 个手柄，拖任一手柄自由改大小（对角锚定，最小 340x220），再点一次完成并存盘；默认尺寸同时放大（1180 屏 542x492 → 661x542）；②「不透明度」—— 点一下换一档 85% → 70% → 55% → 42%，默认由 90% 降到 70%（用户嫌 90% 不够透），档位存 localStorage。v2.9.17 存下的尺寸若等于当年的默认值（说明没人手动调过）会自动换成新默认，手动调过的一律原样保留。v2.9.19 尺寸从「拖手柄自由调」改成三档（用户定稿：默认最大档铺满屏幕，另有中档、小档），纸头那颗调大小图标换成「小 中 大」三颗分段按钮 —— 点哪档就换哪档，当前档高亮，档位存 localStorage（默认「大」）；大档铺满顶栏下方整块并去掉圆角边框，中档 = v2.9.18 的默认尺寸，小档再小一圈；v2.9.18 的 8 个手柄与右下角三角整套删除（两套并存会互相打架）；拖纸头仍可移动，且每档各记一个位置。v2.9.20 纸头两行 + 三颗笔迹键 + 做题状态可见：① 撤销/反撤/清空 搬进纸头的第二行（以前只能伸手去顶栏按，写到最后一行够不着），没得撤时自动置灰；② 纸头分成两行——第一行「题号 + ABCD + ×」，第二行「小中大 | 不透明度 | 撤销 反撤 清空 | 标记 收藏」，小档 380px 也放得下；③ 标记 / 收藏 已开时图标填成实心并转成蓝色（原生 li 上挂 .active，纸头读它同步），点完不再「没有一点互动的感觉」；④ 修「点开 125 号题的纸、顶栏题号却亮着 123」：滚到底时当前题认作最后一道，且纸开着时顶栏高亮跟着纸上那一道走。v2.9.21 纸头按需折行 + 蓝色框线 + 两套撤销彻底分家：① 工具条不再硬折两行——h1（题号+ABCD）与 h2（三档/透明度/撤销反撤清空/标记收藏/×）是 flex-wrap 的两个子项，装得下就一行、装不下才落到第二行（小档才需要），中档宽度同时放宽到 0.58vw（最小 430）；② 纸头所有框线统一成蓝色（字母框、三档分段、图标描边都对 #2F5BEA），跟顶栏一致；③ 顶栏那三颗（撤销/反撤/删除）从此只控制左右两栏那张大画布，纸头那三颗只控制眼前这张纸，两套历史各算各的（此前纸一开、顶栏三颗也跟着改指纸）。 v2.9.22 修「点开 125 的纸却显示 123」：根因是我自己加的「纸跟着当前题走」——开纸后的滚动/尺寸重算把「当前题」算回上一道，纸被悄悄换掉（连带顶栏改号）。现在纸只由点题号决定，不再被自动改写；顶栏高亮改成按题号字符串匹配（Angular 换节点也不丢），且开纸时先刷高亮再刷纸头（纸头刷新抛错也不会把高亮留在旧题上）。另外修「纸开着 A 题、在 B 题的位置点 B 题被当成点自己而收纸」——现在正常换纸。 v2.9.23 防误触（默认只认笔 + 一颗手写开关）：手掌/手指落在纸面或两栏上不再落墨 —— 默认只有 Apple Pencil（和鼠标左键）能写，手指碰纸仍然什么都不透过去，但纸头按钮、拖纸头、两颗滚动条、顶栏照旧用手指按；要手指写字就点顶栏那颗 ✋（橘色=已打开，选择记住）。同时修掉一个老毛病：笔正在写时手掌在 0.7 秒后落下会把这一笔截断、还另画一道 —— 现在笔写期间手指/手掌一律让路，既不落墨也不打断。
+// @version      2.9.45
+// @description  v2.9.45：修公式大全里所有真分数「分子和分母左右没对齐」。真因是给「公式名」用的 CSS 后代选择器 .mf-eq b 把真分数的分母（也是 <b>）一起命中了：分母被缩到 0.92 倍字号（长文字行 0.88 倍）、变成灰色、还多出 0.4em 右外边距，于是比分子小一号、偏左，长分数左右端最多错开 50 多像素。现在公式名规则限定为直接子 > b，分子与分母再显式锁死字号 / 颜色 / 外边距，同一分数上下两项严格等字号同色、居中对齐；百化分页的分数本来就是对齐的，保持不变。其余全部沿用 v2.9.44。 v2.9.44：修真机截图里「中间没笔迹」——笔从左栏划到右栏时，跨过交界那一段线原先只画在新画布上，旧画布停在交接前的最后一个采样点，中间空掉几十像素；现在同一条线在左右两张画布各画一遍、各自裁掉对方那半，拼成一条完整的线（不补点、不插值）。两栏之间原来 4px 的白缝也一并消掉，两张画布边缘精确相接，交界处不再留白。 v2.9.43：① 中间那条可拖的分隔条整个隐藏（栏宽在 Aa 浮层里就能改，功能重复；16px 命中带压在两栏交界容易误触；还挡着笔）。栏宽仍由 Aa 那条滑块调，两栏之间 4px 缝现在归到近侧，笔从左栏划到右栏会按坐标接力到另一侧画布，中间不断线；撤销按整笔分组，一次撤干净。② 公式大全「三、比重」的 P / Q 统一改成 A / B，跟增长、平均数、倍数各组一致。 v2.9.42：按用户 13:11 澄清，把顶栏调笔迹粗细的两颗按钮文字从 A− / A+ 改成汉字「细」「粗」（左细右粗），并撤回 v2.9.41 误加的字重 300 / 800 —— 他要的是改按钮上的汉字，不是给字母 A 调细调粗。两颗按钮仍是各减 / 加 0.2 倍笔宽，中间的倍率显示不变；其余全部沿用 v2.9.41。 v2.9.41：① Aa 排版浮层删掉「行距」滑块（用户 12:56 定稿：自动档的行距已经非常好，不用再手调）；字号 / 栏宽两条滑块、「题干选项 · 自动最大」开关、说明文字与按钮提示同步收敛，浮层少一整行、更不挡题目，底层文字层与右栏自动最大求解器一行未动。② 顶栏画笔粗细的 A− / A+ 改成「左细右粗」（字重 300 / 800），一眼看得出加减方向。③ 百化分速查表里「分数」与「百分数」不再隔着一大片空白：表格按内容收窄、靠列左摆，百分数改成左对齐紧跟分数，一组数据挨在一起，4 列仍均匀铺满、一屏不裁。 v2.9.40：① 删掉材料汉字「自动最大」，材料恢复粉笔原样（用户定稿）；自动最大现在只作用于右栏题干与选项。② 修选项里「A. 60」句点与数字基线错位：粉笔把 em 单位的补偿上边距写在字母节点上，自动档放大字号后补偿跟着放大，真机截图实测数字比句点高 7px；现在选项行内带正上边距的元素一律归零（原值记账、退出还原）。③ 把题号「116.」并进题干首行「2024年」前面、顺手删掉没用的「单选题」题型标签：整条标题行收起，题号做成内联标签插进题干首段最前面（同一行盒，基线天然一致），省掉一整行高度，一屏缩放因此能把字放得更大。标题行用行内 !important 隐藏，退出分栏原样还原。 v2.9.39：把「自动最大」从左栏材料扩到右栏题干与选项。右栏是 5 道题纯文字塞一屏，没有图让空间，字号与一屏缩放会互相抵消，所以不在脚本里写死倍率：进场/转屏时网格扫一遍，取「选项不比原样多折一行 + 一屏不裁」前提下屏幕真实字号（computed 字号 × 缩放比）最大的那一档；行距压到最密档，appTxApply 仍保证行盒 ≥ 1.06×字号，ABCD 对齐不受影响。一颗开关同时管两栏，Aa 浮层各显示一行只读数值，自动时手动字号/行距滑块让位。 v2.9.38：材料字号改成「自动最大」——不用再手动拖滑块。左栏材料原本固定 16px，一屏缩放后在屏幕上只有 9.8px，而同一屏右栏选项是 25px，这才是「字小」的真因（原来的字号滑块只作用于右栏选项，压根没碰材料）。现在把材料文字接进同一套文字层，进场自动解一个尽可能大的字号：行距恒锁 1.06×字号（行盒下限，再密 CJK 上下会压字），字号倍率二分求解——放大字号会让内容变高、一屏缩放 s 变小、图跟着 s 一起缩，所以字越大图越小，以「图宽不低于栏宽的 0.55」为界停手。真机这份材料实测：100% 屏幕 9.8px / 图 427px，滑块拉满 160% 是 15.2px，自动解出来 21px 左右、图 386px（字 +115%，图 -10%）。Aa 浮层里多一行「材料 自动 xx px」，点一下可切回原样。只动材料文字，不改布局、不动右栏选项。 v2.9.35：公式大全改成一屏四列全铺——8 组 53 条一次全见，不用点分类、不用滚；百化分 44 行与公式里的除法全部改成上下真分数（等宽字体逐列对齐，分子分母不再错位）；浮窗字号/行距/间距按平板可用空间自适应（大平板字大、小平板字小，硬约束是一屏不裁内容），两页共用同一比例所以换页字号不跳；浮窗高度随内容自适应，少遮题目。小于 900px 自动降为两列并允许滚动。粉笔网页版草稿增强：页面加载后自动打开全部题的草稿，每题注入 ABCD 字母盒与草稿画布；资料分析「一拖五」整组分栏草稿（左右分栏、材料一屏、选项一屏，笔迹按题保存在本机）；Apple Pencil 防断触、手掌防误触；画布按需创建，低配设备不卡。 v2.9.34：顶栏两颗按钮【百化分】【公式】，各弹一个固定居中的速查窗，都是一屏放完、不用滚轮：百化分页用 4 列网格把 44 个分数（1/2~1/50 基础值 + 常用倍数）压成 6 行，另附增长量秒杀口诀；公式页顶部 8 个考点按钮（增长 / 隔年年均混合 / 比重 / 平均数 / 倍数 / 贡献率拉动 / 统计口径 / 速算），点哪组只出那组 5~9 条公式，字号放大到 15px。纯查阅、不铺画布、不落笔，点 × 或点窗外收起，退出分栏一并清理。另修窄窗口冲突：≤900px 时收紧顶栏间隙、计时块不收缩，1180/1024/820/768 四档倒计时都完整。  v2.9.32：修 v2.9.31 把「整条 header 左边」搬进顶栏的错——搬的时候原先只限了宽高，结果一路扩到 div.header-left，把「←」返回键也一起搬了进去，顶栏里时间和返回键挤成一团、还被压到下半截。现在只认 app-timer 这一个组件（碰到自定义元素就停，遇到 <a> 也停），搬过来的就是「闹钟 + 时间 + 暂停」那一小块，垂直居中、不再挤。 v2.9.31：① 页面顶部那条考试倒计时（闹钟 + 时间 + 暂停键）现在直接显示在分栏顶栏上 —— 把那颗原生节点搬进顶栏，时间照走、暂停还是粉笔原来那颗按钮，退出分栏按锚点原位还回去；② 一屏开着、内容视觉上确实是一屏时，两侧的灰色滑块自动收起（不再白白挂两条）；关掉哪个一屏，对应那侧的滚动条立刻回来。 v2.9.30：① 修「拖行距 / 栏宽时左边材料区抽搐」的真因——两栏用的是原生纵向滚动条，内容比一栏高一点（真机实测多 7px）滚动条就出现，clientWidth 立刻少 15px（477→462），折行、栏宽、一屏缩放全跟着重算，一进一出就是 15px 的横向抽动；现在分栏内原生滚动条一律隐藏（两栏本来就有脚本自己的滑块），量出来的宽高恒定。② 拖动滑块时不再「一动不动、停下才跳一下」：一屏缩放改为拖动中走预览版（2 次重排、每 60ms 一拍）、松手再做精确收敛。③ 拖动期间 700ms 看门狗让路，不再同时按住行内样式、量画布、重铺栏宽。④ 一屏目标高度留 4px 余量，内容不再压着边界。⑤ 修胶囊版本号一直显示 v2.9.25（内部常量没跟着 @version 升），现在显示的就是真正在跑的版本。 v2.9.29：① 修「拖字号 / 行距 / 栏宽时左边材料区抽搐」——根因是脚本自己的幂等重断言（同值重写 class）会触发自己的观察器，再跑一遍全量 processTi，实测静置就有 900 次/秒的 DOM 变更、7 万次内联样式写入，左栏一直在重排；现在观察器先滤掉「值没变」的记录、热点的 class 写入加存在判断、展平等的幂等重断言限速到 ~8 次/秒（实测 relaxSubLayout 从 9000 次/秒降到个位数）。② 分栏期间左栏行内样式归分栏所有，展平流程不再抢写 sticky / max-height（两拨人抢同一组属性）。③ 修「ABCD 和选项内容还是不在一条基线上」——粉笔给字母写的补偿外边距（margin-top: calc((--fp-ts-lh - 1)*.5em)）在行距统一后成了纯偏移，现在按「原本行高矮于本行 + 有正上边距」自动归零，真机实测对齐差 3.8px → 0。 v2.9.28：① 修「调完行距后 ABCD 字母和选项内容不在一条直线上」——同一行内的兄弟元素改用统一行距（原来逐元素写死会把两个元素的半行距差变成基线错位，真机实测 7px）；② Aa 与 ↕ 合并成顶栏一颗按钮，浮层里改成【字号 / 行距 / 栏宽】三条无级滑块；③ 材料与选项中间那条线可以左右拖动了，拖到哪儿存到哪儿（比例），「恢复粉笔原样」把三项一起清掉。 v2.9.27：顶栏 Aa / ↕ 改成【两条无级滑块】——字号（85%~160%）与行距（60%~160%）各自连续可调、各自独立生效，100% = 粉笔原样，拖到哪儿存到哪儿，另给「恢复粉笔原样」。破法等比缩放的办法是把行距锁成固定 px：字号变大而每行高度不跟着涨，缩放比只部分回落，屏幕上的字才真的变大（实测 100%→160% = 屏幕字号 10.1→13.1，+29%）；缩放改用阻尼迭代收敛，各档都真正保持一屏。默认不写任何样式、保持粉笔原样。 v2.9.26：修「点开单独草稿纸以后写不了字」——纸面缺 touch-action:none / user-select:none（两栏内容区从 v2.9.9 就有，v2.9.17 才加的纸一直没补），vivo 平板这类把触控笔报成 touch 的内核上，一落笔就被浏览器当手势接管、pointercancel 掉，一个采样都收不到；现补齐三条声明 + touchmove 兜底。新增顶栏 Aa：一屏模式下的字号调节（v2.9.27 起已改为两条无级滑块）。 v2.9.25：材料工具条按钮改为「打开资料分析草稿」，点击直接进入分栏；进分栏自动按内容算左右列宽（删掉手动列宽）；新增「材料一屏」——左栏材料等比缩放到一屏内、不用滚动；新增「选项一屏」——右栏选项一屏显示并向左扩；选项列数按内容自适应（短选项一行四个、长选项两列），并修复选项排版进场时反复跳动。 v2.9.24：界面瘦身——右下角胶囊开关待机半透明、悬停恢复，启用/停用带版本号，折叠态宽度自适应，「分栏草稿 APP式」开关改名「资料分析」。更早版本的更新说明见脚本猫「历史版本」。
 // @match        *://spa.fenbi.com/*
 // @run-at       document-idle
 // @grant        none
@@ -263,7 +263,7 @@
   //   groupEnabled() 恒返回 true，存量 `marvis-fb-group=0` 会被清掉。
   var MASTER_LS = 'marvis-fb-enabled';
   var GROUP_LS  = 'marvis-fb-group';    // v2.8.2：资料分析（1拖5）板块开关（v2.9.16 起恒开）
-  var SCRIPT_VER = '2.9.23';
+  var SCRIPT_VER = '2.9.45';
 
   /* v2.8.15：胶囊面板里「笔迹自检」那一行的显示开关。
      平时=false（面板里看不到这一行），但功能代码一行没删：
@@ -334,14 +334,16 @@
     if (p) {
       chipSetRow(p.querySelector('.mv-row[data-k="all"]'), on, true);
       chipSetRow(p.querySelector('.mv-row[data-k="appmode"]'), appModeOn(), on);
+      chipSetRow(p.querySelector('.mv-row[data-k="fitmat"]'), fitMatOn(), on);
+      chipSetRow(p.querySelector('.mv-row[data-k="rightfit"]'), fitRightOn(), on);
     }
-    el.title = '点按展开/收起设置：可关闭「分栏草稿 APP式」，或全部关闭';
+    el.title = '点按展开/收起设置：可关闭「资料分析」，或全部关闭';
   }
   /* v2.9.5：面板结构版本号。每次改面板行（增删）就改一下这里。
      原因：masterChip 以前「已有 #marvis-flat-chip 就直接复用」，但复用只拿到旧 DOM ——
      同一页面里先跑过一次脚本（脚本热更新 / 旧实例残留 / SPA 未刷新）时，
      后来新增的行（分栏草稿、笔迹自检）就永远不会出现在面板里，用户翻不到开关。 */
-  var CHIP_STRUCT = 'r5';   // r5（v2.9.16）：隐藏「资料分析 · 1拖5」行
+  var CHIP_STRUCT = 'r7';   /* r7（v2.9.25）：新增「选项一屏」行 */
   function masterChip() {
     var el = document.getElementById('marvis-flat-chip');
     if (el && el.getAttribute('data-mchip') !== CHIP_STRUCT) {
@@ -358,6 +360,15 @@
       el = document.createElement('div');
       el.id = 'marvis-flat-chip';
       el.setAttribute('data-mchip', CHIP_STRUCT);
+      /* v2.9.24：半透明待机——平时 30% 透明度，鼠标悬停（含面板展开时）恢复；
+         面板是胶囊的子元素，:hover 命中胶囊即整组恢复清晰 */
+      if (!document.getElementById('marvis-chip-idle')) {
+        var idleSt = document.createElement('style');
+        idleSt.id = 'marvis-chip-idle';
+        idleSt.textContent = '#marvis-flat-chip{opacity:.3;transition:opacity .25s ease}' +
+          '#marvis-flat-chip:hover,#marvis-flat-chip:focus-within{opacity:1}';
+        (document.head || document.documentElement).appendChild(idleSt);
+      }
       // 样式对齐粉笔底部水印条：「粉笔一页成卷 / 粉笔脚本君出品」那条的观感
       // v2.8.2：胶囊尺寸/字号保持原样（面板是它的绝对定位子元素，不撑大胶囊）
       el.style.cssText = 'position:fixed;right:10px;bottom:66px;z-index:2147483000;' +
@@ -394,9 +405,23 @@
           '<div class="mv-row" data-k="appmode" style="display:flex;align-items:center;' +
             'justify-content:space-between;gap:10px;padding:3px 0;line-height:1.5;' +
             'border-top:1px solid #F1F3F5;">' +
-            '<span class="mv-lbl" style="white-space:nowrap;">分栏草稿 APP式</span>' +
+            '<span class="mv-lbl" style="white-space:nowrap;">资料分析</span>' +
             '<span class="mv-sw" style="min-width:16px;text-align:center;border-radius:999px;' +
               'padding:0 5px;font-size:11px;font-weight:700;line-height:15px;">关</span>' +
+          '</div>' +
+          '<div class="mv-row" data-k="fitmat" style="display:flex;align-items:center;' +
+            'justify-content:space-between;gap:10px;padding:3px 0;line-height:1.5;' +
+            'border-top:1px solid #F1F3F5;">' +
+            '<span class="mv-lbl" style="white-space:nowrap;">材料一屏</span>' +
+            '<span class="mv-sw" style="min-width:16px;text-align:center;border-radius:999px;' +
+              'padding:0 5px;font-size:11px;font-weight:700;line-height:15px;">开</span>' +
+          '</div>' +
+          '<div class="mv-row" data-k="rightfit" style="display:flex;align-items:center;' +
+            'justify-content:space-between;gap:10px;padding:3px 0;line-height:1.5;' +
+            'border-top:1px solid #F1F3F5;">' +
+            '<span class="mv-lbl" style="white-space:nowrap;">选项一屏</span>' +
+            '<span class="mv-sw" style="min-width:16px;text-align:center;border-radius:999px;' +
+              'padding:0 5px;font-size:11px;font-weight:700;line-height:15px;">开</span>' +
           '</div>' +
           '<div class="mv-row" data-k="pendiag" style="' +
             (PENDIAG_ROW_VISIBLE ? 'display:flex;' : 'display:none;') + 'align-items:center;' +
@@ -438,6 +463,20 @@
             if (!masterEnabled()) return;
             try { localStorage.setItem(APP_LS, appModeOn() ? '0' : '1'); } catch (e) {}
             if (!appModeOn() && appCur) appClose(true);
+            chipSync(el);
+            return;
+          }
+          if (k === 'fitmat') {
+            /* v2.9.25：材料一屏开关——即改即生效，分栏开着就直接重排 */
+            try { localStorage.setItem(FITMAT_LS, fitMatOn() ? '0' : '1'); } catch (e) {}
+            try { appFitMat(); appApplyCols(); appSyncThumbs(); } catch (e2) {}
+            chipSync(el);
+            return;
+          }
+          if (k === 'rightfit') {
+            /* v2.9.25：选项一屏开关——即改即生效 */
+            try { localStorage.setItem(FITRIGHT_LS, fitRightOn() ? '0' : '1'); } catch (e) {}
+            try { appFitMat(); appSyncThumbs(); } catch (e2) {}
             chipSync(el);
             return;
           }
@@ -1494,12 +1533,12 @@
         if (panel.parentElement !== appSetting.parentElement || panel.nextElementSibling !== appSetting) {
           appSetting.parentElement.insertBefore(panel, appSetting); // insertBefore 会自动搬移已存在节点
         }
-        panel.classList.add('mbp-inline');
+        if (!panel.classList.contains('mbp-inline')) panel.classList.add('mbp-inline');
         return;
       }
 
       /* 兜底：锚点始终缺失时才回到左下角 fixed 模式；后续扫描一旦锚点出现仍会挪过去 */
-      panel.classList.remove('mbp-inline');
+      if (panel.classList.contains('mbp-inline')) panel.classList.remove('mbp-inline');
       if (panel.parentElement !== document.body) document.body.appendChild(panel);
     } catch (e) { /* 定位失败不影响 scan() 中后续题目处理 */ }
   }
@@ -1510,7 +1549,8 @@
     var dots = panel.querySelectorAll('.mbp-dot');
     for (var i = 0; i < dots.length; i++) {
       var on = String(dots[i].getAttribute('data-color')).toLowerCase() === String(brushColor).toLowerCase();
-      dots[i].className = 'mbp-dot' + (on ? ' mbp-dot-on' : '');
+      var cls = 'mbp-dot' + (on ? ' mbp-dot-on' : '');
+      if (dots[i].className !== cls) dots[i].className = cls;   // 同值重写也会派发 mutation
     }
     var r = panel.querySelector('.mbp-range');
     if (r) r.value = String(brushWidth);
@@ -2232,6 +2272,11 @@
     return off;
   }
   function stickLeftCol(group) {
+    /* v2.9.29：分栏草稿开着时，左栏的行内样式归分栏所有（appSetColWidth / appInlineFix）。
+       这里再写 sticky / max-height / align-self 就是两拨人抢同一组属性：实测每帧
+       sticky ↔ static、calc(100vh-…) ↔ auto 来回写，左栏一直重排 —— 拖滑块时
+       整块材料区都在抖。谁拥有谁负责，分栏期间这里直接让位。 */
+    if (appCur && appCur.group === group) return;
     var left = group.querySelector('.nz-resizable.left') || group.querySelector('.left');
     if (!left || !left.style) return;
     var top = stickyTopOffset();
@@ -2272,6 +2317,15 @@
   try { window.addEventListener('resize', function () { stickyTopOff = 0; }); } catch (e) {}
 
   function flattenGroup(group) {
+    /* v2.9.29：幂等重断言必须限速。它是「扫描一遍就再断言一遍」，而扫描会被
+       各种自反馈驱动成每秒几十上百趟（我们写样式 → 布局变 → 粉笔重渲染 →
+       观察器 → 再扫描 → 再断言）。实测真机静置时 relaxSubLayout 就跑到
+       9000 次/秒的样式写入，左栏一直在重排 —— 这就是「拖滑块材料区抽搐」的
+       另一半来源。断言本身幂等，压到 ~8 次/秒对结果没有任何影响。 */
+    var nowT = Date.now();
+    var lastT = +(group.getAttribute('data-marvis-flat-at') || 0);
+    if (nowT - lastT < 130) return;
+    group.setAttribute('data-marvis-flat-at', String(nowT));
     if (group.getAttribute(FLAT_ATTR) !== '1') {
       relaxEl(group);
       relaxHeight(group);
@@ -3492,6 +3546,41 @@
   var SHEET_SIZE_TXT = { s: '小', m: '中', l: '大' };
   var SHEET_MIN_W = 380, SHEET_MIN_H = 220;   // 纸头：题号 + ABCD + 小中大 + 4 颗图标所需宽度
   var APP_STYLE_ID = 'marvis-app-style';
+  /* v2.9.28 时是三条无级滑块（字号 / 行距 / 栏宽）；v2.9.41 删掉行距，只剩两条。
+     txon=0（默认）时完全不写任何文字样式，保持粉笔原样；用户第一次拖文字滑块才置 1。
+     栏宽单独存：null = 走 v2.9.25 的自动比例；有值 = 左栏占整块宽度的比例。 */
+  var APP_AA_ID = 'marvis-app-aa';
+  var APP_SPLIT_ID = 'marvis-app-split';      // 两栏之间那条可拖的分隔条
+  /* v2.9.31：页面顶部那条考试倒计时（闹钟 + 01:01:58 + 暂停）。
+     分栏把整块题目钉成全屏，倒计时那条 header 就被顶栏压在了下面 —— 用户看不见时间。
+     做法是把那个原生小节点【搬进】顶栏（不是复制一份文本）：
+     计时全靠它自己走、暂停按钮也还是原生那颗，我们不写任何计时逻辑；
+     退出分栏按记下的锚点原位还回去。 */
+  var APP_TIMER_ID = 'marvis-app-timer';
+  /* v2.9.33：公式大全浮窗。左百化分 / 右公式，固定居中，纯查阅（不铺画布、不落笔）。 */
+  var APP_FORMULA_ID = 'marvis-app-formula';
+  var APP_TX_ON_LS = 'marvis-app-txon';
+  var APP_TX_FS_LS = 'marvis-app-txfs';   // 字号倍率，相对每处文字原有的 font-size
+  /* v2.9.41：行距滑块已删，这个键还留着是为了兼容旧存档 / 手动档沿用旧值，
+     自动档的行距由 appTxApply 直接锁 1.06×字号，不读它。 */
+  var APP_TX_LH_LS = 'marvis-app-txlh';   // 行距倍率，相对每处原本的 line-height
+  var APP_COL_LS = 'marvis-app-colmanual';  // 与 v2.9.25 删掉的 'marvis-app-cols' 无关，是新键
+  /* v2.9.44：原来两栏之间留 4px 缝做视觉分隔。分隔条隐藏后这 4px 里没有任何
+     画布，笔划过去必然缺一小截；改成 0，让两张画布边缘精确相接。
+     内容各自的 padding 还在，材料与题目不会挤在一起。 */
+  var COL_MIN = 0.25, COL_MAX = 0.75, COL_GAP = 0;
+  var TX_FS_MIN = 0.85, TX_FS_MAX = 1.60, TX_FS_DEF = 1.00;
+  var TX_LH_MIN = 0.60, TX_LH_MAX = 1.60, TX_LH_DEF = 1.00;
+  /* v2.9.40：材料「自动最大」已删除，材料保持粉笔原样。
+     键名沿用旧版（用户已经拨过的开关不丢），现在只控制右栏题干 / 选项自动最大。 */
+  var APP_MAT_AUTO_LS = 'marvis-app-matauto';   // '0' = 关掉题干选项自动最大
+  var MAT_LH_RATIO = 1.06;    // 行盒下限：再密 CJK 的上下就会压字
+  var MAT_IMG_FLOOR = 0.55;   // 图宽不得低于「材料栏宽 × 这个比例」
+  var MAT_K_MIN = 1.00, MAT_K_MAX = 3.60, MAT_K_STEPS = 5;
+  /* v2.9.39：右栏题干 / 选项自动最大 */
+  var RGHT_LH = 0.60;                       // 行距压到滑块下限（最密档）
+  var RGHT_K_MIN = 1.00, RGHT_K_MAX = 2.40, RGHT_K_STEPS = 6;
+  var RGHT_LINE_SLACK = 1.45;               // 选项折行相对「原样」的容忍系数
   var APP_BAR_H = 46;
   var appCur = null;
 
@@ -3502,6 +3591,19 @@
       var v = localStorage.getItem(APP_LS);
       return v === null ? true : v !== '0';
     } catch (e) { return true; }
+  }
+  /* ---- v2.9.25 材料一屏 ----
+     面板开关：材料比一屏长时整体缩放到刚好放得下，不出现上下滚动条。
+     默认开。只作用于左栏材料内容（缩放套在内容包裹层上，画布叠层不动，
+     写字坐标不受影响）；关掉立刻恢复原样正常滚动。 */
+  var FITMAT_LS = 'marvis-fp-fitmat';
+  function fitMatOn() {
+    try { return localStorage.getItem(FITMAT_LS) !== '0'; } catch (e) { return true; }
+  }
+  /* v2.9.25：右栏「选项一屏」——整组题目等比缩放到一屏内（跟材料同一套机制） */
+  var FITRIGHT_LS = 'marvis-fp-rightfit';
+  function fitRightOn() {
+    try { return localStorage.getItem(FITRIGHT_LS) !== '0'; } catch (e) { return true; }
   }
   /* v2.9.9 分栏的唯一交互语义（用户定稿，别再改回去）：
        「不管手和笔，草稿一打开就只能在纸上写字，不能滑动 / 点击下面那一层内容。」
@@ -3530,7 +3632,11 @@
          （真机实测：容器算出来是内容高 1650 而不是 817） */
       '.ti[data-marvis-app] .resizable-container{display:flex!important;align-items:stretch!important;',
       'position:absolute!important;left:0!important;top:0!important;right:0!important;bottom:0!important;',
-      'height:auto!important;min-height:0!important;}',
+      'height:auto!important;min-height:0!important;',
+      /* v2.9.44：容器本身也不留 gap，两栏紧贴 */
+      'gap:0!important;column-gap:0!important;}',
+      '.ti[data-marvis-app] .nz-resizable.left,.ti[data-marvis-app] .right{',
+      'margin-left:0!important;margin-right:0!important;}',
       /* 左栏：材料，独立滚动 */
       '.ti[data-marvis-app] .nz-resizable.left{position:static!important;height:auto!important;',
       'max-height:none!important;align-self:stretch!important;overflow-y:auto!important;',
@@ -3571,6 +3677,36 @@
       'touch-action:none!important;}',
       '.ti[data-marvis-app] .left-section *,.ti[data-marvis-app] .right-section *{',
       'max-width:100%!important;min-width:0!important;box-sizing:border-box!important;}',
+      /* v2.9.25 修复「选项一屏后右边一大片白」：一屏缩放的包裹层必须按
+         栏宽÷缩放比加宽（scale 完视觉宽才正好铺满栏），上面那条 `* max-width:100%`
+         会把它钳回栏宽——内容缩完只占左半截，右半全白（真机复现实锤）。
+         包裹层是脚本自己的元素，只在这里放开；退出分栏整条样式随之卸下，
+         不碰外部脚本与粉笔原生结构。选择器多带一层 :nth-child 无意义，
+         用 > 直接子代选择器把特异性抬过上面那条。 */
+      '.ti[data-marvis-app] .left-section>.marvis-fitmat-wrap,',
+      '.ti[data-marvis-app] .right-section>.marvis-fitmat-wrap{max-width:none!important;}',
+      /* v2.9.30 修「拖行距 / 栏宽时左栏材料区抽搐」的真因：
+         两栏里粉笔用的是【原生纵向滚动条】。内容一旦比一栏高（哪怕 7px），
+         滚动条出现 → clientWidth 立刻少 15px（真机实测 477→462）→ 折行变了 →
+         内容又变高 → 一屏缩放比跟着变 → 可能又不需要滚动条 → 再消失……
+         一进一出就是 15px 的横向抽一下。而两栏本来就由脚本自己画滑块（.marvis-app-thumb），
+         原生条纯属多余：这里一律隐藏，栏宽恒定，量出来的宽高不再随时变。
+         作用域只在分栏组内部，退出分栏整条样式随之卸下。 */
+      '.ti[data-marvis-app] .nz-resizable.left,.ti[data-marvis-app] .right,',
+      '.ti[data-marvis-app] .left-section,.ti[data-marvis-app] .right-section,',
+      '.ti[data-marvis-app] .left-part,.ti[data-marvis-app] .right-part{',
+      'scrollbar-width:none!important;-ms-overflow-style:none!important;}',
+      '.ti[data-marvis-app] .nz-resizable.left::-webkit-scrollbar,',
+      '.ti[data-marvis-app] .right::-webkit-scrollbar,',
+      '.ti[data-marvis-app] .left-section::-webkit-scrollbar,',
+      '.ti[data-marvis-app] .right-section::-webkit-scrollbar,',
+      '.ti[data-marvis-app] .left-part::-webkit-scrollbar,',
+      '.ti[data-marvis-app] .right-part::-webkit-scrollbar{width:0!important;height:0!important;}',
+      /* 选项列数自适应（v2.9.25 用户定稿方案C：面积最大化）。
+         列宽由 appOptColsFix() 按每题内容实测决定（短选项一行四个、长选项两列），
+         样式表这里只做进场瞬间的兜底：先铺成可换行的 flex，不锁列数。 */
+      '.ti[data-marvis-app] .right-section ul.choice-radios{',
+      'display:flex!important;flex-wrap:wrap!important;column-gap:18px!important;row-gap:.3em!important;}',
       '.ti[data-marvis-app] .right,.ti[data-marvis-app] .nz-resizable.left{min-width:0!important;}',
       /* 旧的单题/材料悬浮画布与原生组级草稿：这个模式下全部让位 */
       '.ti[data-marvis-app] canvas.marvis-pen{display:none!important;}',
@@ -3587,6 +3723,19 @@
       '#marvis-app-bar .mab-btn[disabled]{color:#C6CBD2;}',
       '#marvis-app-bar .mab-btn svg{width:22px;height:22px;display:block;}',
       '#marvis-app-bar .mab-sp{flex:1 1 auto;}',
+      /* v2.9.31：原生倒计时搬进顶栏之后的落脚处。宽高都跟着原生内容走，
+         只做三件事：不撑破顶栏、贴住中线、和撤销/清空之间留一点距离。 */
+      '#marvis-app-bar .mab-timer{display:none;align-items:center;flex:0 0 auto;min-width:0;',
+      'height:' + APP_BAR_H + 'px;margin:0 4px 0 8px;overflow:hidden;}',
+      /* v2.9.33：顶栏多一颗公式按钮后，窄窗口（≤900px）会把伸缩条压到 0，
+         再往下就把倒计时连「暂停键」一起裁了。这里只收紧间隙 / 内边距，
+         按钮热区一律不动，把那 30 多 px 省出来给倒计时。 */
+      '@media (max-width:900px){#marvis-app-bar{gap:2px;padding:0 5px;}',
+      '#marvis-app-bar .mab-timer{margin:0 2px 0 4px;}}',
+      '#marvis-app-bar .mab-timer.on{display:flex;}',
+      '#marvis-app-bar .mab-timer>*{flex:0 0 auto;align-self:center;height:auto!important;',
+      'max-height:38px;margin:0!important;padding:0!important;position:static!important;',
+      'background:transparent!important;border:0!important;box-shadow:none!important;}',
       '#marvis-app-bar .mab-sep{width:1px;height:22px;background:#E7EAEE;margin:0 3px;}',
       /* 笔色圆点（v2.9.2：原来的笔色面板在页面 header 上，被这条栏整个盖住了） */
       '#marvis-app-bar .mab-dot{width:24px;height:24px;border-radius:50%;border:2px solid transparent;',
@@ -3596,7 +3745,9 @@
       '#marvis-app-bar .mab-w{min-width:40px;height:32px;border:0;border-radius:8px;background:transparent;',
       'color:#3C464F;font:600 12px/1 -apple-system,"PingFang SC",sans-serif;padding:0 4px;flex:0 0 auto;}',
       '#marvis-app-bar .mab-w:active{background:#EFF2F5;}',
-      '#marvis-app-bar .mab-btn.manual{color:#C9701A;background:#FFF4E8;}',
+      /* v2.9.42：用户 13:11 定稿「把 A减 改成细，把 A加 改成粗就行」——
+         要的是按钮上的汉字，不是字母 A 的字重。撤回 v2.9.41 那两条 font-weight，
+         两颗统一用 .mab-w 原有的 600 字重；除按钮文字外什么都不动。 */
       /* v2.9.23：手写开关（防误触例外态）—— 橘色提醒「手掌/手指现在也会落墨」 */
       '#marvis-app-bar .mab-btn.hand.on{color:#C9701A;background:#FFF4E8;}',
       '#marvis-app-bar .mab-wv{min-width:34px;text-align:center;font:600 12px/1 -apple-system,"PingFang SC",sans-serif;',
@@ -3673,6 +3824,62 @@
       'border-radius:0 0 12px 12px;}',
       '#' + APP_SHEET_ID + ' canvas.mas-ink{position:absolute;left:0;top:0;width:100%;height:100%;',
       'pointer-events:none;touch-action:none;display:block;}',
+      /* v2.9.26：纸面必须是「书写面」—— 两栏内容区从 v2.9.9 就有 touch-action:none，
+         而 v2.9.17 才加的这张纸一直没补。vivo 平板这类把触控笔报成 touch 的内核上，
+         手指/笔一落到纸上，浏览器就把这串指针当手势接管并 pointercancel 掉，
+         我们一个 move 都收不到、连两个点都凑不齐 → 一个墨点都不出，
+         用户看到的就是「点开单独草稿纸以后写不了字」。
+         user-select / touch-callout 同理：长按选中也会把指针流掐断。 */
+      '#' + APP_SHEET_ID + '{touch-action:none;-webkit-user-select:none;user-select:none;',
+      '-webkit-touch-callout:none;overscroll-behavior:contain;}',
+      '#' + APP_SHEET_ID + ' .mas-body{touch-action:none;}',
+      /* v2.9.27：不再注入任何「字号 / 行距」静态规则 —— 每条文字的原始字号各不相同，
+         统一写死 px 会把题号、小字、选项全拉平，层级就没了。改成 JS 逐元素按原始值
+         等比放大（见 appTxApply），既保留层级又不猜粉笔类名。 */
+      /* Aa / ↕ 浮层：挂在 body 上，位置由 JS 按那颗按钮算。
+         自家 range 必须能收到原生拖动 —— touch-action 放 auto。 */
+      '#marvis-app-aa{position:fixed;z-index:2147483260;display:none;flex-direction:column;gap:8px;',
+      'padding:11px 12px;border-radius:12px;background:#fff;border:1px solid #E3E8EF;',
+      'box-shadow:0 10px 28px rgba(24,32,45,.16);touch-action:auto;width:258px;box-sizing:border-box;}',
+      '#marvis-app-aa.on{display:flex;}',
+      '#marvis-app-aa .maa-row{display:flex;align-items:center;gap:8px;}',
+      '#marvis-app-aa .maa-row.focus .maa-lbl{color:#2F5BEA;}',
+      '#marvis-app-aa .maa-lbl{font:600 12px/1 -apple-system,"PingFang SC",sans-serif;color:#3C464F;',
+      'flex:0 0 30px;}',
+      '#marvis-app-aa .maa-rng{flex:1 1 auto;min-width:0;height:22px;margin:0;',
+      'accent-color:#2F5BEA;cursor:pointer;}',
+      '#marvis-app-aa .maa-val{font:600 11px/1 -apple-system,"PingFang SC",sans-serif;color:#2F5BEA;',
+      'flex:0 0 38px;text-align:right;}',
+      '#marvis-app-aa .maa-tip{font:500 10px/1.45 -apple-system,"PingFang SC",sans-serif;color:#9AA0A8;}',
+      '#marvis-app-aa .maa-rst{height:26px;border:0.5px solid #BFD0F4;border-radius:7px;',
+      'background:#fff;color:#2F5BEA;font:600 11.5px/1 -apple-system,"PingFang SC",sans-serif;',
+      'cursor:pointer;}',
+      '#marvis-app-aa .maa-rst:disabled{opacity:.45;cursor:default;}',
+      /* v2.9.38：材料自动最大那一行（只读数值 + 一颗开关） */
+      '#marvis-app-aa .maa-mat{margin-top:2px;padding-top:6px;border-top:1px dashed #DCE3EE;}',
+      '#marvis-app-aa .maa-matval{flex:1 1 auto;min-width:0;text-align:left;white-space:nowrap;',
+      ' overflow:hidden;text-overflow:ellipsis;}',
+      '#marvis-app-aa .maa-matbtn{flex:0 0 auto;height:22px;padding:0 9px;border:0.5px solid #BFD0F4;',
+      ' border-radius:6px;background:#fff;color:#2F5BEA;font:600 11px/1 -apple-system,"PingFang SC",sans-serif;',
+      ' cursor:pointer;}',
+      '#marvis-app-aa .maa-matbtn[data-on="0"]{color:#8B949E;border-color:#D8DEE6;}',
+      /* v2.9.39：第二行（题干选项）与上面那行同一组，去掉重复的分隔线 */
+      '#marvis-app-aa .maa-mat2{border-top:0;padding-top:0;margin-top:0;}',
+      '#marvis-app-aa .maa-rng:disabled{opacity:.45;cursor:default;}',
+      '#marvis-app-bar [data-k="aa"]{font:700 12.5px/1 -apple-system,"PingFang SC",sans-serif;',
+      'letter-spacing:-.3px;}',
+      /* v2.9.28：两栏之间可拖的分隔条。挂在 .resizable-container 直属 ——
+         放进 left/right 会被「内容区 pointer-events:none」整片吞掉，拖不动。
+         16px 是命中区，中间那 4px 才是看得见的线；绝对定位，不参与 flex 布局。 */
+      '#marvis-app-split{position:absolute;top:0;bottom:0;width:16px;margin-left:-8px;',
+      'z-index:2147483120;touch-action:none;cursor:col-resize;user-select:none;',
+      '-webkit-user-select:none;display:flex;align-items:center;justify-content:center;}',
+      '#marvis-app-split .masp-line{position:absolute;top:0;bottom:0;left:6px;width:4px;',
+      'background:#DDE3EC;border-left:1px solid #CBD3E0;border-right:1px solid #CBD3E0;}',
+      '#marvis-app-split .masp-grip{position:relative;width:9px;height:36px;border-radius:5px;',
+      'background:#fff;border:1px solid #B9C6DE;box-shadow:0 1px 5px rgba(24,32,45,.16);}',
+      '#marvis-app-split.on .masp-grip{background:#2F5BEA;border-color:#2F5BEA;}',
+      '#marvis-app-split.on .masp-line{background:#C9D8FA;}',
       /* v2.9.19：尺寸三档（小 / 中 / 大）—— 分段控件，跟顶栏题号那颗同一种做法 */
       '#' + APP_SHEET_ID + ' .mas-sz{display:flex;align-items:center;flex:0 0 auto;',
       'border:0.5px solid #BFD0F4;border-radius:7px;background:#fff;overflow:hidden;}',
@@ -3690,7 +3897,73 @@
       '#' + APP_SHEET_ID + ' .mas-t.on svg path{fill:currentColor;}',
       /* 内容区里那三个图标（标记/草稿/收藏）在分栏里也点不动，一起收进面板 */
       '.ti[data-marvis-app] li.mark.tool,.ti[data-marvis-app] li.draft.tool,',
-      '.ti[data-marvis-app] li.collect.tool{display:none!important;}'
+      '.ti[data-marvis-app] li.collect.tool{display:none!important;}',
+      /* v2.9.35 公式大全：两颗按钮 / 两页一屏放完；四列公式墙 + 真分数 + 自适应比例 */
+'#' + APP_FORMULA_ID + ' {position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);',
+      'z-index:2147483310;display:none;flex-direction:column;box-sizing:border-box;',
+      'width:min(97vw,1180px);height:auto;max-height:min(90vh,780px);',
+      'background:#fff;border:1px solid #D8E2F4;border-radius:14px;overflow:hidden;',
+      'box-shadow:0 14px 44px rgba(20,40,90,.24);color:#243044;',
+      'font:400 13px/1.5 -apple-system,"PingFang SC",sans-serif;touch-action:auto;}',
+'#' + APP_FORMULA_ID + '.on{display:flex;}',
+'#' + APP_FORMULA_ID + '  .mf-head{display:flex;align-items:center;gap:10px;height:44px;',
+      'flex:0 0 auto;padding:0 10px 0 14px;border-bottom:1px solid #E6ECF7;background:#F7F9FE;}',
+'#' + APP_FORMULA_ID + '  .mf-title{font:700 14px/1 -apple-system,"PingFang SC",sans-serif;',
+      'color:#1B3A82;flex:0 0 auto;}',
+'#' + APP_FORMULA_ID + '  .mf-sp{flex:1 1 auto;}',
+'#' + APP_FORMULA_ID + '  .mf-x{width:30px;height:30px;flex:0 0 auto;border:0;border-radius:8px;',
+      'background:transparent;color:#5C6775;font:600 18px/1 -apple-system,sans-serif;cursor:pointer;}',
+'#' + APP_FORMULA_ID + '  .mf-x:active{background:#E9EEF9;}',
+'#' + APP_FORMULA_ID + '  .mf-page{display:none;flex:0 1 auto;min-height:0;',
+      'padding:.9em 1.2em 1.05em;box-sizing:border-box;overflow:hidden;font-size:var(--mf-k,13px);}',
+'#' + APP_FORMULA_ID + '  .mf-page.on{display:block;}',
+'#' + APP_FORMULA_ID + '  .mf-tip{font-size:.92em;color:#6B7684;background:#F4F7FE;',
+      'border-radius:8px;padding:.55em .75em;}',
+'#' + APP_FORMULA_ID + '  .mf-foot{margin-top:.75em;}',
+'#' + APP_FORMULA_ID + '  .mf-sym{margin-top:.6em;font-size:.88em;padding:.4em .6em;}',
+'#' + APP_FORMULA_ID + '  .mf-sec{font-weight:600;font-size:.96em;color:#2F5BEA;',
+      'margin:.8em 0 .55em;padding-left:.5em;border-left:3px solid #2F5BEA;}',
+'#' + APP_FORMULA_ID + '  .mf-grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));',
+      'gap:0 .9em;align-items:start;}',
+/* v2.9.41：表格不再拉满整列，否则两列被 space-between 拉到两端、中间全是白。
+     justify-self:start 防 grid 把 width:auto 的表格重新拉伸；min-width 让 4 组等宽对齐。 */
+'#' + APP_FORMULA_ID + '  table{width:auto;min-width:7.8em;justify-self:start;',
+      'border-collapse:collapse;font-size:1.04em;}',
+'#' + APP_FORMULA_ID + '  th,' + '#' + APP_FORMULA_ID + '  td{padding:.1em .3em;',
+      'border-bottom:1px solid #F0F3F9;white-space:nowrap;}',
+'#' + APP_FORMULA_ID + '  th{color:#8A929B;font-weight:600;text-align:left;font-size:.92em;}',
+'#' + APP_FORMULA_ID + '  td.mf-f{color:#243044;}',
+'#' + APP_FORMULA_ID + '  td.mf-p{color:#2F5BEA;text-align:left;}',
+'#' + APP_FORMULA_ID + '  .mf-grid4 .mf-frac{font-size:.76em;}',
+'#' + APP_FORMULA_ID + '  .mf-wall{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));',
+      'gap:0 .9em;align-items:start;}',
+'#' + APP_FORMULA_ID + '  .mf-col{min-width:0;}',
+'#' + APP_FORMULA_ID + '  .mf-grp{margin-bottom:.55em;}',
+'#' + APP_FORMULA_ID + '  .mf-gt{font-weight:600;font-size:.96em;color:#2F5BEA;',
+      'padding-left:.5em;border-left:3px solid #2F5BEA;margin-bottom:.3em;}',
+'#' + APP_FORMULA_ID + '  .mf-eq{font-size:1em;line-height:1.32;padding:.15em 0;',
+      'border-bottom:1px solid #F0F3F9;color:#1B3A82;}',
+    /* v2.9.45：公式名是 .mf-eq 的直接子 <b>；真分数的分母也是 <b>。
+       旧的后代选择器连分母一起缩字号 / 染灰 / 加右外边距，分子分母因此左右错开。
+       改成 > 只作用公式名，再在 .mf-frac i/b 上显式锁死，双保险。 */
+'#' + APP_FORMULA_ID + '  .mf-eq > b{font-weight:600;font-size:.92em;color:#5C6775;margin-right:.4em;}',
+'#' + APP_FORMULA_ID + '  .mf-eq.txt{font-size:.92em;line-height:1.3;color:#3C464F;}',
+'#' + APP_FORMULA_ID + '  .mf-eq.txt > b{font-size:.88em;}',
+'#' + APP_FORMULA_ID + '  .mf-eq small{font-size:.85em;color:#8A929B;}',
+'#' + APP_FORMULA_ID + '  .mf-frac{display:inline-flex;flex-direction:column;align-items:stretch;',
+      'vertical-align:middle;text-align:center;',
+      'font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;',
+      'font-variant-numeric:tabular-nums;font-size:.82em;line-height:1.12;',
+      'margin:0 2px;color:#1B3A82;}',
+    /* v2.9.45：上下两项字号 / 颜色 / 外边距必须完全一致，分数线才会对齐。 */
+'#' + APP_FORMULA_ID + '  .mf-frac i{font-style:normal;font-size:1em;color:inherit;margin:0;padding:0 3px 1px;}',
+'#' + APP_FORMULA_ID + '  .mf-frac b{font-weight:400;font-size:1em;color:inherit;margin:0;border-top:1px solid currentColor;padding:1px 3px 0;}',
+      '@media (max-width:900px){' + '#marvis-app-formula .mf-wall' +
+      '{grid-template-columns:repeat(2,minmax(0,1fr));}',
+      '#marvis-app-formula .mf-page{overflow-y:auto;touch-action:pan-y;}}',
+      '@media (max-width:620px){#marvis-app-formula .mf-grid4' +
+      '{grid-template-columns:repeat(2,minmax(0,1fr));}}'
+
     ].join('');
     (document.head || document.documentElement).appendChild(st);
   }
@@ -3896,22 +4169,15 @@
     appSizeSide('right');
   }
 
-  /* ---- v2.9.3 自适应列宽 ----
+  /* ---- v2.9.3 自适应列宽；v2.9.25 起全自动 ----
      不写死比例，按「屏幕宽度 + 这一组内容长什么样」现算：
        · 屏越窄越把空间让给题目（iPad 竖屏是最挤的场景）
        · 材料里有图/表 → 左边多给一点（图表挤窄了就得左右滚）
        · 选项文字被折成很多行 → 右边多给一点（选项一长，少一行就是少滚半屏）
-     用户在分隔条上手拖过就记住手拖的比例（localStorage），不再自动，
-     想回到自动就点顶栏的「⇔」按钮。 */
-  var APP_COLS_LS = 'marvis-app-cols';
-
-  function appColsManual() {
-    try {
-      var v = parseFloat(localStorage.getItem(APP_COLS_LS) || '');
-      if (!isNaN(v) && v > 0.2 && v < 0.8) return v;
-    } catch (e) {}
-    return 0;
-  }
+     v2.9.25：进分栏永远自动自适应，删掉顶栏「⇔」按钮和手动比例记忆
+     （旧版里笔迹收尾碰分隔条会被误记成手动列宽，是「点了没反应」的根源）。
+     顺手清掉老版本留在 localStorage 里的手动比例。 */
+  try { localStorage.removeItem('marvis-app-cols'); } catch (e) {}
 
   /* 右栏「最长的那条选项」在宽度 Wr 下会折成几行。
      不量渲染高度（li 带内边距，量出来恒偏大），而是用一个 nowrap 探针量这段文字的
@@ -3951,6 +4217,9 @@
 
   function appAutoRatio(W, L, R) {
     var r = W < 720 ? 0.40 : (W < 900 ? 0.43 : (W < 1200 ? 0.46 : 0.48));
+    /* v2.9.25（用户定稿）：材料一屏开着时材料反正整体缩放、不缺宽，
+       左栏往窄收一截，把宽度让给右栏选项区（选项少折行、少滚动） */
+    if (fitMatOn()) r -= 0.05;
     try {
       if (appMaterialHasFigure(L)) r += 0.04;                  // 图表类材料要给宽
       if (L.querySelector('table')) r += 0.02;                 // 表格最怕窄
@@ -3967,31 +4236,135 @@
     return r;
   }
 
-  function appApplyCols() {
+  /* ---- v2.9.28：栏宽可以手动拖了 ----
+     历史：v2.9.25 删掉过「手动列宽」，原因是笔迹收尾碰到分隔条会被误记成手动比例，
+     用户看到的就是「点了没反应」。这次只认【按在把手上的那一记 pointerdown】——
+     笔迹收尾是 move / up，永远不会触发它；把手也进了 appInOwnUI 白名单。
+     存的是比例（左栏占整块宽度多少），转屏 / 重进分栏都按同一个比例铺开。 */
+  function appColManual() {
+    var v = null;
+    try {
+      var raw = localStorage.getItem(APP_COL_LS);
+      if (raw !== null && raw !== '') { var x = parseFloat(raw); if (isFinite(x)) v = x; }
+    } catch (e) {}
+    return v === null ? null : Math.max(COL_MIN, Math.min(COL_MAX, v));
+  }
+  function appColSetManual(r) {
+    try { localStorage.setItem(APP_COL_LS, Math.max(COL_MIN, Math.min(COL_MAX, r)).toFixed(4)); } catch (e) {}
+  }
+  function appColTotalW() {
+    if (!appCur) return 0;
+    var cont = appCur.group.querySelector('.resizable-container');
+    if (!cont) return 0;
+    return cont.clientWidth || Math.round(cont.getBoundingClientRect().width);
+  }
+  function appSplitPlace() {
+    var el = document.getElementById(APP_SPLIT_ID);
+    if (!el || !appCur || !appCur.colW) return;
+    el.style.left = appCur.colW.l + 'px';
+  }
+  /* 写栏宽的唯一出口：自动算比例、拖把手、拖滑块都走这里。
+     同步更新 appCur.colW —— 定时看门狗拿它核对，不同步的话拖完一秒就被弹回去。 */
+  function appSetColWidth(lw, save, autoMin) {
     if (!appCur) return;
     var g = appCur.group;
-    var cont = g.querySelector('.resizable-container');
-    var L = g.querySelector('.nz-resizable.left');
-    var R = g.querySelector('.right');
-    if (!cont || !L || !R) return;
-    var W = cont.clientWidth || Math.round(cont.getBoundingClientRect().width);
-    if (W < 240) return;
-    var ratio = appCur.manualCol || appAutoRatio(W, L, R);
-    var gap = 4;                                  // 两栏之间的分隔条
-    var minSide = Math.max(200, Math.min(Math.round(W * 0.28), 380));
-    var lw = Math.round(W * ratio);
-    if (lw < minSide) lw = minSide;
-    if (W - lw - gap < minSide) lw = W - minSide - gap;
-    var rw = W - lw - gap;
+    var L = g.querySelector('.nz-resizable.left'), R = g.querySelector('.right');
+    var W = appColTotalW();
+    if (!L || !R || W < 240) return;
+    var minSide = autoMin ? Math.max(200, Math.min(Math.round(W * 0.28), 380))
+                          : Math.max(180, Math.round(W * 0.18));
+    lw = Math.max(minSide, Math.min(W - minSide - COL_GAP, Math.round(lw)));
+    var rw = W - lw - COL_GAP;
     if (rw < 120) return;
     appCur.colW = { l: lw, r: rw };
-    // 粉笔给左栏写过 width:1143px 这类行内值（按它自己 1905 宽的桌面容器算的），
-    // 必须用行内 !important 压回去，否则用我们的 px 会被它盖掉
+    /* 粉笔给左栏写过 width:1143px 这类行内值（按它自己 1905 宽的桌面容器算的），
+       必须用行内 !important 压回去 */
     L.style.setProperty('width', lw + 'px', 'important');
     L.style.setProperty('flex', '0 0 ' + lw + 'px', 'important');
     R.style.setProperty('width', rw + 'px', 'important');
     R.style.setProperty('flex', '0 0 ' + rw + 'px', 'important');
     R.style.setProperty('min-width', '0px', 'important');
+    appSplitPlace();
+    if (save) appColSetManual(lw / W);
+  }
+  function appApplyCols() {
+    if (!appCur) return;
+    var g = appCur.group;
+    var L = g.querySelector('.nz-resizable.left'), R = g.querySelector('.right');
+    var W = appColTotalW();
+    if (!L || !R || W < 240) return;
+    var manual = appColManual();
+    var ratio = manual === null ? appAutoRatio(W, L, R) : manual;
+    appSetColWidth(Math.round(W * ratio), false, manual === null);
+  }
+  /* 把手本身：绝对定位在两栏交界，不参与 flex 布局，也不进两栏内容区
+     （那边整片 pointer-events:none，放进去就拖不动）。 */
+  var appSplitTimer = 0;
+  function appSplitBuild() {
+    /* v2.9.43：用户 13:24 定稿「中间这个可以拖动的，要不隐藏掉吧」——
+       ① 栏宽在 Aa 浮层那条滑块里就能改，功能重复；
+       ② 16px 命中带压在两栏交界，笔扫过去会误触拖栏；旧版 appInOwnUI 还把它
+          放进自家 UI 白名单，落在这条带上的笔既不落墨、又被当成拖栏；
+       ③ 于是这里「好像不能用笔去写」。
+       现在整个分隔条不再生成：栏宽只由 Aa 滑块改；v2.9.44 起两栏紧贴、
+       交界交给 appSideAt / appOnMove 按坐标接管，笔能从左栏一路写到右栏。
+       下面旧实现原样留着（dead code），要恢复只需删掉这个 return。 */
+    return null;
+    var g = appCur && appCur.group;
+    if (!g) return null;
+    var cont = g.querySelector('.resizable-container');
+    if (!cont) return null;
+    var el = document.getElementById(APP_SPLIT_ID);
+    if (el && el.parentElement === cont) return el;
+    if (el) { try { el.remove(); } catch (e0) {} }
+    el = document.createElement('div');
+    el.id = APP_SPLIT_ID;
+    el.title = '左右拖动：调整材料 / 选项的宽度';
+    el.innerHTML = '<i class="masp-line"></i><i class="masp-grip"></i>';
+    var drag = null;
+    el.addEventListener('pointerdown', function (e) {
+      /* 纸开着时别拖：纸铺满盖住了这一带，而且拖线会让纸下面的题目重新排版。
+         真要调就用顶栏浮层里那条滑块。 */
+      if (!appCur || appCur.sheetOpen) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var W = appColTotalW();
+      drag = { id: e.pointerId, x0: e.clientX,
+               lw0: appCur.colW ? appCur.colW.l : Math.round(W * 0.5) };
+      appDragMark(1200);
+      try { el.setPointerCapture(e.pointerId); } catch (e2) {}
+      el.classList.add('on');
+    }, true);
+    el.addEventListener('pointermove', function (e) {
+      if (!drag || e.pointerId !== drag.id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      appSetColWidth(drag.lw0 + (e.clientX - drag.x0), false, false);
+      /* 拖动中只按新栏宽轻量算一屏缩放（预览版，2 次重排），整套重算留到松手 */
+      appDragMark(1200);
+      if (appSplitTimer) return;
+      appSplitTimer = setTimeout(function () {
+        appSplitTimer = 0;
+        try { appFitMat(true); } catch (e3) {}
+      }, 50);
+    }, true);
+    function end(e) {
+      if (!drag || (e && e.pointerId !== drag.id)) return;
+      drag = null;
+      el.classList.remove('on');
+      if (appSplitTimer) { clearTimeout(appSplitTimer); appSplitTimer = 0; }
+      if (appCur) appCur.dragUntil = 0;             // 松手了，看门狗可以管事了
+      if (!appCur || !appCur.colW) return;
+      appSetColWidth(appCur.colW.l, true, false);   // 存比例
+      try { appOnResize(); } catch (e4) {}          // 列数 / 一屏 / 画布 / 滚动条全套重算
+      appAaSync();
+    }
+    el.addEventListener('pointerup', end, true);
+    el.addEventListener('pointercancel', end, true);
+    cont.appendChild(el);
+    appSplitPlace();
+    return el;
   }
 
   /* 列宽算好后尺寸会变 → 画布、滑块都要重算 */
@@ -3999,41 +4372,1387 @@
     if (!appCur) return;
     appApplyCols();
     appSizeAll();
+    appFitMat();
     appRedraw();
     appSyncThumbs();
   }
 
-  /* 手拖分隔条 → 记住比例（之后不再自动，直到点「⇔」） */
-  function appWatchSplitter() {
-    if (!appCur || appCur.splitBound) return;
-    var handle = appCur.group.querySelector('.nz-resizable-handle') ||
-                 appCur.group.querySelector('.resizable-container > i') ||
-                 appCur.group.querySelector('[class*="resizable-handle"]');
-    if (!handle) return;
-    appCur.splitBound = true;
-    handle.addEventListener('pointerup', function () {
-      if (!appCur) return;
-      var cont = appCur.group.querySelector('.resizable-container');
-      var L = appCur.group.querySelector('.nz-resizable.left');
-      if (!cont || !L) return;
-      var W = cont.clientWidth;
-      var lw = Math.round(L.getBoundingClientRect().width);
-      if (W > 240 && lw > 0) {
-        var ratio = Math.max(0.2, Math.min(0.8, lw / W));
-        appCur.manualCol = ratio;
-        try { localStorage.setItem(APP_COLS_LS, String(Math.round(ratio * 1000) / 1000)); } catch (e) {}
-        appCur.colW = null;      // 让看门狗按新宽度重新认一遍
+  /* ---- v2.9.25 材料一屏：把左栏材料整体缩放到一屏内 ----
+     做法：把 host 里除画布外的内容搬进一个包裹层，
+     量出「内容自然高 / 视口高」，超出就等比 scale + 反向加宽，
+     文字图表一起变小但完整可见；内容不比一屏长时不动。 */
+  function appFitMatWrapOf(s) {
+    if (!s || !s.host) return null;
+    var kids = s.host.children;
+    for (var i = 0; i < kids.length; i++) {
+      if (kids[i].classList && kids[i].classList.contains('marvis-fitmat-wrap')) return kids[i];
+    }
+    return null;
+  }
+  function appFitScaleOf(s) {
+    var wrap = s && appFitMatWrapOf(s);
+    if (!wrap || !wrap.style.transform) return 1;
+    var m = wrap.style.transform.match(/scale\(([\d.]+)\)/);
+    return m ? parseFloat(m[1]) : 1;
+  }
+  function appFitScaleOfWrap(wrap) {
+    if (!wrap || !wrap.style.transform) return 1;
+    var m = wrap.style.transform.match(/scale\(([\d.]+)\)/);
+    return m ? parseFloat(m[1]) : 1;
+  }
+  /* v2.9.30：拖动中的「预览版」一屏缩放。
+     精确算法要走 6 轮逼近 + 12 轮阻尼 + 4 轮向下修正，二十多次同步重排；
+     每帧跑一遍，量到的是中间态、上屏的是最后一态，看上去就是材料区在抽。
+     拖动时只量两次：先在上一帧的宽度下量一次内容高，算出新比例；
+     再按新比例落宽量一次收口。误差交给下一帧（比例是连续量，两帧内就贴住），
+     精确收敛留到松手那一下（appTxSet / 拖完交界线的 end）。 */
+  function appFitFast(wrap, W, H) {
+    var s = appFitScaleOfWrap(wrap);
+    if (!(s > 0.05)) s = 1;
+    var w1 = Math.round(W / s) + 'px';
+    wrap.style.width = w1; appFitMatStretch(wrap, w1);
+    var ch = wrap.scrollHeight;
+    if (!(ch > 0)) return;
+    var s2 = ch > H ? Math.max(0.15, H / ch) : 1;
+    if (Math.abs(s2 - s) < 0.004) s2 = s;      // 变化太小就保持，免得来回抖
+    var w2 = Math.round(W / s2) + 'px';
+    wrap.style.width = w2; appFitMatStretch(wrap, w2);
+    var ch2 = wrap.scrollHeight;
+    if (ch2 > 0 && ch2 * s2 > H) s2 = Math.max(0.15, H / ch2);
+    var w3 = Math.round(W / s2) + 'px';
+    wrap.style.width = w3; appFitMatStretch(wrap, w3);
+    wrap.style.transform = s2 > 0.999 ? '' : 'scale(' + s2.toFixed(4) + ')';
+  }
+  function appFitMatUnwrap(s) {
+    var wrap = s && appFitMatWrapOf(s);
+    if (!wrap) return;
+    appFitMatRestoreChildren(wrap);
+    wrap.style.transform = ''; wrap.style.width = ''; wrap.style.transformOrigin = '';
+    var ro = s.__fitRO;
+    if (ro) { try { ro.disconnect(); } catch (e) {} s.__fitRO = null; }
+    while (wrap.firstChild) wrap.parentNode.insertBefore(wrap.firstChild, wrap);
+    try { wrap.remove(); } catch (e) {}
+  }
+  /* v2.9.25 修复「材料区右边一大块空白」：粉笔给材料内层写死了固定 px 宽度
+     （跟左栏 1143px 一个路数），包裹层加宽后内层纹丝不动，内容全挤在左半边。
+     缩放前把直接子元素的宽度一并拉到目标宽，并记下原值好还原。 */
+  function appFitMatStretch(wrap, wpx) {
+    var kids = wrap.children;
+    for (var j = 0; j < kids.length; j++) {
+      var k = kids[j];
+      if (k.getAttribute('data-marvis-origw') === null) {
+        k.setAttribute('data-marvis-origw', k.style.width || '');
       }
-    }, true);
+      k.style.width = wpx;
+    }
+  }
+  function appFitMatRestoreChildren(wrap) {
+    var kids = wrap.children;
+    for (var j = 0; j < kids.length; j++) {
+      var ow = kids[j].getAttribute('data-marvis-origw');
+      if (ow !== null) {
+        kids[j].style.width = ow;
+        kids[j].removeAttribute('data-marvis-origw');
+      }
+    }
+  }
+  function appFitMatSide(s, fast) {
+    if (!s || !s.host) return;
+    var host = s.host;
+    var wrap = appFitMatWrapOf(s);
+    if (!wrap) {
+      /* 首次：把除画布外的子节点搬进包裹层（画布留在外面，坐标不受缩放影响） */
+      wrap = document.createElement('div');
+      wrap.className = 'marvis-fitmat-wrap';
+      var kids = [].slice.call(host.children);
+      for (var i = 0; i < kids.length; i++) {
+        var k = kids[i];
+        if (k.classList && (k.classList.contains('marvis-app-ink') || k.classList.contains('marvis-fitmat-wrap'))) continue;
+        wrap.appendChild(k);
+      }
+      host.appendChild(wrap);
+      wrap.style.transformOrigin = '0 0';
+      /* 内容后来变高（图片加载、切题重渲染）→ 重算一次（防抖到下一帧） */
+      if (window.ResizeObserver && !s.__fitRO) {
+        s.__fitRO = new ResizeObserver(function () {
+          if (!appCur || appCur.stroke) return;      // 正在写字时不折腾
+          /* v2.9.25 防振荡：进场/转窗后 3.5s 内允许跟着内容重算，之后冻结。
+             不冻的话两边互触死循环：一页成卷重排选项 → 高度变 → 这里重算 →
+             包裹层宽度变 → 它量到的可用宽变 → 它再重写 → 高度再变……
+             冻结后它的测量签名不再变化、重写自动停，选项两列即成最终态。 */
+          if (Date.now() - (appCur.fitWindow || 0) > 3500) return;
+          if (s.__fitRaf) return;
+          s.__fitRaf = requestAnimationFrame(function () { s.__fitRaf = 0; appFitMat(); });
+        });
+        s.__fitRO.observe(wrap);
+      }
+    }
+    var W = host.clientWidth, Hraw = host.clientHeight;
+    if (W < 120 || Hraw < 80) return;
+    /* v2.9.30：目标高度留 4px 余量。以前正好卡着 H 收，内容常常多出 2~7px（真机实测 811 vs 804），
+       原生滚动条一出现栏宽就少 15px —— 这是「抽搐」最直接的来源。宁可底部留 4px 白，
+       也不让内容压到边界上。原生条已在样式里隐藏，这里是第二道保险。 */
+    var H = Hraw - 4;
+    if (H < 80) H = Hraw;
+    if (fast && appFitMatWrapOf(s)) { appFitFast(appFitMatWrapOf(s), W, H); return; }
+    /* 迭代求缩放比：加宽会让文字回流变矮，量一次算一次会留空白（v2.9.25 首版的坑），
+       量→缩→再量→再缩，收敛到内容刚好填满一屏；每轮同步把内层宽度拉满 */
+    wrap.style.transform = 'none';
+    var scale = 1, fits = false;
+    for (var it = 0; it < 6; it++) {
+      var wpx = Math.round(W / scale) + 'px';
+      wrap.style.width = wpx;
+      appFitMatStretch(wrap, wpx);
+      var ch = wrap.scrollHeight;
+      if (ch <= H + 2) { fits = true; break; }
+      var ns = H / ch;
+      if (Math.abs(ns - scale) < 0.004) { scale = ns; fits = false; break; }
+      scale = ns;
+    }
+    if (fits && scale === 1) {         // 本来就放得下 → 还原，不留缩放
+      wrap.style.transform = '';
+      wrap.style.width = '';
+      appFitMatRestoreChildren(wrap);
+      return;
+    }
+    var wEnd = Math.round(W / scale) + 'px';
+    wrap.style.width = wEnd;
+    appFitMatStretch(wrap, wEnd);
+    wrap.style.transform = 'scale(' + scale.toFixed(4) + ')';
+    /* v2.9.27：主迭代在「上一轮的旧宽度」下量高度，最后才把宽度定到最终值，
+       内容会再回流一次、变高一截；而宽度↔高度是强耦合的（加宽→变矮→要放大→
+       变窄→变高→要缩小），双向收敛会二周期振荡、停在上一档的比例上。
+       所以这里【只向下修正】：量一次最终宽度下的真实内容高，超一屏就把 scale
+       压到 H/ch，绝不再往大调。宁可底部留一点白，也不让题目被滚出屏外
+       （用户原话「必须保持一屏」）。
+       只在用户真的拖过字号 / 行距时启用；没调过就完全保持 v2.9.25 的原样。 */
+    if (appCur && appCur.txStrict) {
+      /* 宽度↔高度强耦合，直接 s=H/ch 会二周期振荡；用半步阻尼逼近不动点。
+         这样同一组参数不管从哪一档拖过来，都收敛到同一个比例，
+         不会「拖回 100% 字反而变小」。 */
+      var sD = scale;
+      for (var f = 0; f < 12; f++) {
+        var wF = Math.round(W / sD) + 'px';
+        wrap.style.width = wF;
+        appFitMatStretch(wrap, wF);
+        var chF = wrap.scrollHeight;
+        if (!(chF > 0)) break;
+        var target = Math.min(1, H / chF);
+        var next = sD + (target - sD) * 0.5;
+        if (Math.abs(next - sD) < 0.002) { sD = next; break; }
+        sD = next;
+      }
+      /* 文字折行是离散的，不动点未必精确存在 —— 最后一步只向下修正，
+         任何情况下都不让题目滚出屏外。 */
+      for (var g = 0; g < 4; g++) {
+        var chNow = wrap.scrollHeight;
+        if (!(chNow > 0) || chNow * sD <= H + 2) break;
+        sD = Math.max(0.15, H / chNow);
+        var wNow = Math.round(W / sD) + 'px';
+        wrap.style.width = wNow;
+        appFitMatStretch(wrap, wNow);
+      }
+      /* 无条件把阻尼收敛后的比例落盘 —— 上面一轮都没跑时也必须写，
+         否则 transform 还停在旧值上。 */
+      var wLast = Math.round(W / sD) + 'px';
+      wrap.style.width = wLast;
+      appFitMatStretch(wrap, wLast);
+      wrap.style.transform = 'scale(' + sD.toFixed(4) + ')';
+    }
+  }
+  /* 总入口：左栏「材料一屏」+ 右栏「选项一屏」，各自开关独立 */
+  function appFitMat(fast) {
+    if (!appCur) return;
+    /* v2.9.40：材料不再接文字层，恒为粉笔原样；这里只落定右栏题干 / 选项。 */
+    appTxApply();          // v2.9.27：文字样式必须在量内容高之前落定
+    if (fitMatOn()) appFitMatSide(appCur.sides && appCur.sides.left, fast);
+    else appFitMatUnwrap(appCur.sides && appCur.sides.left);
+    if (fitRightOn()) appFitMatSide(appCur.sides && appCur.sides.right, fast);
+    else appFitMatUnwrap(appCur.sides && appCur.sides.right);
   }
 
-  /* 回到自动列宽 */
-  function appColsAuto() {
-    try { localStorage.removeItem(APP_COLS_LS); } catch (e) {}
-    if (appCur) { appCur.manualCol = 0; appCur.colW = null; }
-    appFitCols();
-    appBarSync();          // 按钮要从橙色「手动」变回普通态
+  /* ---- v2.9.27：顶栏 Aa / ↕ —— 字号、行距各一条无级滑块 ----
+     一屏是等比缩放（scale = 一屏高 ÷ 内容高）。行高若写成倍数（1.65em），
+     放大字号会让内容同比变高、scale 同比变小，屏幕上等于没变 —— v2.9.26 的
+     四档就是绕开它：只压行距换字号。
+     这一版把行距锁成【固定 px】：字号变大而每行高度不跟着涨，scale 只部分回落，
+     屏幕上的字就真的变大。实测（1180×820 / 5 题，行距固定 26.4px）：
+       字号 16→20→24px = 屏幕字号 9.87→11.65→12.69；
+       字号 16px 时行距 26.4→21px = 9.87→11.55。
+     两个旋钮各自独立、各自连续生效。行距存的是【相对每处原本行距】的倍率，
+     字号存的是【相对每处原本字号】的倍率：默认 1.00/1.00 = 与粉笔原样逐像素一致，
+     拖动一下不会让版面突然跳一下。默认（没拖过）更是什么样式都不写。 */
+  function appTxNum(ls, def, lo, hi) {
+    var v = def;
+    try {
+      var raw = localStorage.getItem(ls);
+      if (raw !== null && raw !== '') { var x = parseFloat(raw); if (isFinite(x)) v = x; }
+    } catch (e) {}
+    return Math.max(lo, Math.min(hi, v));
   }
+  /* v2.9.39：自动最大开着时，右栏文字层的 k / r 由求解器写进 appCur，
+     手动滑块的值让位（滑块本身在 Aa 浮层里置灰）。关掉自动立刻回到手动档。 */
+  function appTxAutoK() {
+    /* v2.9.40：开关沿用旧名，语义已改成「题干选项自动最大」（材料恢复原样）。 */
+    return (appMatAutoOn() && appCur && appCur.rghtK > 0) ? appCur.rghtK : 0;
+  }
+  function appTxFs() {
+    var a = appTxAutoK(); if (a) return a;
+    return appTxNum(APP_TX_FS_LS, TX_FS_DEF, TX_FS_MIN, TX_FS_MAX);
+  }
+  function appTxLh() {
+    var a = appTxAutoK(); if (a) return RGHT_LH;
+    return appTxNum(APP_TX_LH_LS, TX_LH_DEF, TX_LH_MIN, TX_LH_MAX);
+  }
+  function appTxOn() {
+    if (appMatAutoOn()) return true;      // v2.9.40：题干选项自动档必须启用右栏文字层
+    var v = '0';
+    try { v = localStorage.getItem(APP_TX_ON_LS) || '0'; } catch (e) {}
+    return v === '1';
+  }
+  function appTxSave(ls, v) { try { localStorage.setItem(ls, v.toFixed(2)); } catch (e) {} }
+  function appTxSetOn() { try { localStorage.setItem(APP_TX_ON_LS, '1'); } catch (e) {} }
+
+  function appTxHasText(el) {
+    for (var j = 0; j < el.childNodes.length; j++) {
+      var nd = el.childNodes[j];
+      if (nd.nodeType === 3 && nd.nodeValue && nd.nodeValue.replace(/\s/g, '').length) return true;
+    }
+    return false;
+  }
+  /* 只处理「自己带着文字」的元素：跳过纯容器、图标、表单控件。
+     不猜粉笔类名，题目结构怎么改都跟得上；也不会把 radio 圆圈、svg 图标拉变形。
+     v2.9.28 例外：选项行（li.choice-radio）内的元素【全部】收进来，哪怕自己没有
+     文本节点 —— 粉笔的 ABCD 标号常常是 ::before 伪元素或空 span，不在文本节点里，
+     上一版把它们漏了，结果只给「内容」写了行距，标号与内容错开（真机 7px）。
+     这些元素只统一 line-height、不写 font-size，radio 圆圈不会被拉变形。 */
+  function appTxNodes() {
+    var g = appCur && appCur.group;
+    if (!g) return [];
+    var host = g.querySelector('.right-section');
+    if (!host) return [];
+    var out = [], all = host.querySelectorAll('*');
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (/^(INPUT|TEXTAREA|SELECT|CANVAS|SCRIPT|STYLE|IMG|SVG|PATH|BUTTON|BR|HR)$/.test(el.tagName)) continue;
+      try { if (el.closest && el.closest('svg')) continue; } catch (e) {}
+      var inChoice = false;
+      try { inChoice = !!(el.closest && el.closest('li.choice-radio, li[class*="choice"]')); } catch (e2) {}
+      if (appTxHasText(el) || inChoice) out.push(el);
+    }
+    return out;
+  }
+  /* 还原：把每处原本的 inline 值（含 !important 优先级）一字不差写回去。
+     粉笔「一页成卷」会给选项写行内 !important，不能粗暴 removeAttribute('style')。 */
+  function appTxRestore(nodes) {
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (!el || el.getAttribute('data-mv-tx') !== '1') continue;
+      var fs = el.getAttribute('data-mv-ofs') || '';
+      var lh = el.getAttribute('data-mv-olh') || '';
+      var fp = el.getAttribute('data-mv-ofsp') || '';
+      var lp = el.getAttribute('data-mv-olhp') || '';
+      var hasMt = el.getAttribute('data-mv-omt') !== null;
+      var mt = el.getAttribute('data-mv-omt') || '';
+      var mtp = el.getAttribute('data-mv-omtp') || '';
+      try {
+        if (fs) el.style.setProperty('font-size', fs, fp); else el.style.removeProperty('font-size');
+        if (lh) el.style.setProperty('line-height', lh, lp); else el.style.removeProperty('line-height');
+        /* v2.9.29：上边距也要一字不差还回去 */
+        if (hasMt) {
+          if (mt) el.style.setProperty('margin-top', mt, mtp); else el.style.removeProperty('margin-top');
+        }
+      } catch (e) {}
+      ['data-mv-tx','data-mv-ofs','data-mv-olh','data-mv-ofsp','data-mv-olhp',
+       'data-mv-bfs','data-mv-blh','data-mv-omt','data-mv-omtp'].forEach(function (a) {
+        try { el.removeAttribute(a); } catch (e2) {}
+      });
+    }
+  }
+  function appTxClear(group) {
+    var g = group || (appCur && appCur.group);
+    if (!g) return;
+    /* 直接在整棵子树里找带标记的，不依赖 appCur（退出时它可能已经换了组） */
+    appTxRestore([].slice.call(g.querySelectorAll('[data-mv-tx="1"]')));
+    if (appCur) appCur.txSig = null;
+  }
+  /* v2.9.28：同一行里的兄弟元素必须【共用同一个 line-height】。
+     上一版逐个节点按它自己原本的 line-height 写死 px。粉笔选项里「A.」和内容
+     「60」是同一个 label 下的两个 flex 子项，原本行高并不相同 —— 写死之后两者在
+     行盒里的半行距差了 (lh1-lh2)/2，父级 flex-start 一摆，字母就比内容低几像素
+     （用户真机截图实测 7px，逐字块量过：字母 y=183..215、内容 y=176..209）。
+     现在按「行容器」分组，组内统一用最大的原始行距当基准；字号仍各自等比放大，
+     层级不丢。选项 li 整行算一组，flex 父级下的兄弟算一组，其余各自独立。 */
+  function appTxRowOf(el) {
+    try {
+      if (el.closest) {
+        var li = el.closest('li.choice-radio, li[class*="choice"]');
+        if (li) return li;
+      }
+      var pa = el.parentElement;
+      if (pa) {
+        var d = getComputedStyle(pa).display || '';
+        if (/flex|grid/.test(d)) return pa;
+      }
+    } catch (e) {}
+    return el;
+  }
+  function appTxApply() {
+    if (!appCur || !appCur.group) return;
+    var k = appTxFs(), r = appTxLh(), on = appTxOn();
+    var nodes = appTxNodes();
+    /* sig 里带上「还没采过基准的节点数」：Angular 重渲染换了节点但数量没变时，
+       原来的 sig 会误判成「没变化」直接 return，新节点就漏了文字样式。 */
+    var fresh = 0;
+    for (var q = 0; q < nodes.length; q++) {
+      if (nodes[q].getAttribute('data-mv-bfs') === null) fresh++;
+    }
+    var sig = (on ? k.toFixed(2) + '|' + r.toFixed(2) : 'off') +
+              '|' + nodes.length + '|' + fresh;
+    if (appCur.txSig === sig) return;      // 防 ResizeObserver 因为同一份改写反复触发
+    appCur.txSig = sig;
+    /* 只要用户拖过文字滑块（txon=1）就启用严格一屏，哪怕当前正好拖回 100%：
+       缩放迭代的起点跟上一档有关，回到 100% 也可能算出偏大的比例。 */
+    appCur.txStrict = on;
+    if (!on) {
+      /* 关掉调节：把之前写上去的 inline 原样还回去，再让后面的 fitMat 重新量。
+         v2.9.39：左栏材料也用 data-mv-tx 标记，这里只能清右栏，
+         否则用户一关手动滑块就把材料自动解出来的字号一起抹掉了。 */
+      var hit = [].slice.call(appCur.group.querySelectorAll('[data-mv-tx="1"]'))
+        .filter(function (el) { return !(el.closest && el.closest('.left-section')); });
+      appTxRestore(hit);
+      return;
+    }
+    /* 第一遍：采集「粉笔原样」的字号 / 行距，按行容器分组，记下组内最大值 */
+    var rows = [], items = [];
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (el.getAttribute('data-mv-bfs') === null) {
+        var bfs = 0, blh = 0;
+        try {
+          var cs = getComputedStyle(el);
+          bfs = parseFloat(cs.fontSize);
+          blh = parseFloat(cs.lineHeight);
+        } catch (e) {}
+        if (!(bfs > 0)) { el.setAttribute('data-mv-bfs', '0'); continue; }
+        if (!(blh > 0)) blh = bfs * 1.65;
+        el.setAttribute('data-mv-bfs', bfs.toFixed(2));
+        el.setAttribute('data-mv-blh', blh.toFixed(2));
+        el.setAttribute('data-mv-ofs', el.style.getPropertyValue('font-size'));
+        el.setAttribute('data-mv-olh', el.style.getPropertyValue('line-height'));
+        el.setAttribute('data-mv-ofsp', el.style.getPropertyPriority('font-size'));
+        el.setAttribute('data-mv-olhp', el.style.getPropertyPriority('line-height'));
+      }
+      var base = parseFloat(el.getAttribute('data-mv-bfs'));
+      var baseLh = parseFloat(el.getAttribute('data-mv-blh'));
+      if (!(base > 0)) continue;
+      var row = appTxRowOf(el), info = null;
+      for (var j = 0; j < rows.length; j++) {
+        if (rows[j].row === row) { info = rows[j]; break; }
+      }
+      if (!info) { info = { row: row, maxLh: 0, maxFs: 0 }; rows.push(info); }
+      if (baseLh > info.maxLh) info.maxLh = baseLh;
+      if (base > info.maxFs) info.maxFs = base;
+      items.push({ el: el, base: base, info: info });
+    }
+    /* 第二遍：组内统一行距。行距锁成固定 px，不跟着字号涨，所以放大字号只让
+       内容略高、scale 略降，屏幕上的字是净变大的。r=1.00 时与粉笔原样逐像素一致。 */
+    for (var m = 0; m < items.length; m++) {
+      var it = items[m], ee = it.el;
+      var fs = it.base * k;
+      /* v2.9.39 自动档：行距恒锁 1.06×组内最大字号。
+         手动档那句 max(maxLh*r, …) 里的 maxLh 是粉笔原生的 1.65~2.3 倍行距，
+         就算把滑块压到 0.60 也还剩 1.38 倍 —— 用户原话「间距拉得很大的话字又不是很大，
+         看汉字费眼」。自动档不再吃原生行距，直接按字号定行盒；组内仍统一，
+         v2.9.28 的 ABCD 对齐 / margin-top 补偿归零逻辑原样保留。 */
+      var lh = appTxAutoK()
+        ? Math.max(it.info.maxFs * k * MAT_LH_RATIO, 12)
+        : Math.max(it.info.maxLh * r, it.info.maxFs * k * 1.06);
+      ee.setAttribute('data-mv-tx', '1');
+      try {
+        if (appTxHasText(ee)) ee.style.setProperty('font-size', fs.toFixed(2) + 'px', 'important');
+        ee.style.setProperty('line-height', lh.toFixed(2) + 'px', 'important');
+      } catch (e2) {}
+      /* v2.9.29：粉笔给选项里的「A.」写了一条补偿外边距
+         margin-top: calc((var(--fp-ts-lh) - 1) * .5em)，用途是把「字母那行较矮的行盒」
+         在「选项内容较高行盒」里垂直居中（真机原生：字母 23px 行高 / 内容 36.8px、
+         上边距 6.9px，字形顶差 0.3px，本来就是对齐的）。
+         我们把整行改成同一个行高后，这条补偿就成了纯偏移：真机实测字母比内容低 3.8px。
+         判据 = 「原本行高比这一行最大值矮」+「带着正值上外边距」→ 归零，并把原值记下来好还原。 */
+      /* v2.9.40：判据放宽到「选项行内任何带正上边距的元素」。
+         真机 li.choice-radio 里 div.input-radio 的行内样式是
+           margin: calc((var(--fp-ts-lh) - 1) * .5em) 1px 0 ... !important
+         这是 fp-ts 给「字母那行较矮的行盒」做的居中补偿；组内行距被我们统一后
+         它就成了纯偏移，而且 em 单位会随自动档字号倍率 k 一起放大 ——
+         用户 12:18 截图逐字块量过：句点/字母基线 y=277，数字基线 y=270，差 7px。
+         旧判据要求「原本行高比本行最大行高矮 0.5px」，真机两个节点行高相等，
+         一次都没命中。现在一律归零，原值照记，退出分栏原样还回去。 */
+      var inChoiceRow = false;
+      try { inChoiceRow = !!(ee.closest && ee.closest('li.choice-radio, li[class*="choice"]')); } catch (eC) {}
+      if (inChoiceRow && ee.getAttribute('data-mv-omt') === null) {
+        var mt0 = 0;
+        try { mt0 = parseFloat(getComputedStyle(ee).marginTop); } catch (e3) {}
+        if (mt0 > 0.2) {
+          ee.setAttribute('data-mv-omt', ee.style.getPropertyValue('margin-top'));
+          ee.setAttribute('data-mv-omtp', ee.style.getPropertyPriority('margin-top'));
+          try { ee.style.setProperty('margin-top', '0px', 'important'); } catch (e4) {}
+        }
+      }
+    }
+  }
+
+  /* ---- v2.9.38：材料字号自动最大 ----
+     用户原话「字体大小还是不够…不要让我手动调了，你自己给我弄出来字体最大行间距最密」。
+     根因不是滑块不够大：appTxNodes() 只取 .right-section，字号 / 行距滑块压根没碰左栏材料，
+     材料一直是粉笔原样的 16px，被「材料一屏」等比缩到 0.61 倍 → 屏幕上 9.8px。
+     这里给材料单独做一层文字：行距恒锁 1.06×字号（最密），字号倍率 k 由二分求解 ——
+     放大字号 → 内容变高 → 一屏缩放 s 变小 → 图跟着 s 缩，于是「字越大图越小」；
+     以「图宽 ≥ 栏宽 × MAT_IMG_FLOOR」为界停手，保证图表里的数字还看得清。
+     实测（1908×853，左栏 897，真机这份 209 字 + 两张 700px 图）：
+       k=1.00 屏幕 9.8px 图 427px ｜ k=1.60 15.2px 417px ｜ k=2.40 21.2px 386px ｜ k=3.20 25.6px 353px
+     只写材料的 font-size / line-height，不动任何布局、不动右栏，退出分栏一字不差还原。 */
+  /* v2.9.40：名字沿用旧版，语义已改成「题干选项自动最大总开关」；
+     材料那套自动放大已删除，这里不再驱动任何材料文字层。 */
+  function appMatAutoOn() {
+    var v = '1';
+    try { v = localStorage.getItem(APP_MAT_AUTO_LS) || '1'; } catch (e) {}
+    return v === '1';
+  }
+  function appMatSetAuto(on) {
+    try { localStorage.setItem(APP_MAT_AUTO_LS, on ? '1' : '0'); } catch (e) {}
+  }
+  function appMatRoot() {
+    var s = appCur && appCur.sides && appCur.sides.left;
+    var host = s && s.host;
+    if (!host) return null;
+    return host.querySelector('.material-content') || host;
+  }
+  /* 只取「自己带文字」的元素：纯容器靠继承，图片 / svg 图标不碰。
+     不猜粉笔类名，题干或材料结构改了也跟得上。 */
+  function appMatNodes() {
+    var root = appMatRoot();
+    if (!root) return [];
+    var all = root.querySelectorAll('p,span,div,li,td,th,strong,em,b,i,a,font'),
+        out = [];
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (/^(IMG|SVG|CANVAS|INPUT|BUTTON|SCRIPT|STYLE)$/.test(el.tagName)) continue;
+      try { if (el.closest && el.closest('svg')) continue; } catch (e) {}
+      if (!appTxHasText(el)) continue;
+      out.push(el);
+    }
+    return out;
+  }
+  /* k = 字号倍率。第一趟只「采集」粉笔原样的字号 / 行距（必须在写任何样式之前采，
+     否则父元素先被放大、子元素读到的 computed 就是放大后的值，会滚雪球）；
+     第二趟统一按 base×k 写绝对值。 */
+  function appMatApply(k) {
+    var nodes = appMatNodes(), i, el, bfs, blh, cs;
+    for (i = 0; i < nodes.length; i++) {
+      el = nodes[i];
+      if (el.getAttribute('data-mv-bfs')) continue;
+      bfs = 0; blh = 0;
+      try { cs = getComputedStyle(el); bfs = parseFloat(cs.fontSize); blh = parseFloat(cs.lineHeight); } catch (e) {}
+      if (!(bfs > 0)) { el.setAttribute('data-mv-bfs', '0'); continue; }
+      if (!(blh > 0)) blh = bfs * 1.65;
+      el.setAttribute('data-mv-bfs', bfs.toFixed(2));
+      el.setAttribute('data-mv-blh', blh.toFixed(2));
+      el.setAttribute('data-mv-ofs', el.style.getPropertyValue('font-size'));
+      el.setAttribute('data-mv-olh', el.style.getPropertyValue('line-height'));
+      el.setAttribute('data-mv-ofsp', el.style.getPropertyPriority('font-size'));
+      el.setAttribute('data-mv-olhp', el.style.getPropertyPriority('line-height'));
+    }
+    for (i = 0; i < nodes.length; i++) {
+      el = nodes[i];
+      bfs = parseFloat(el.getAttribute('data-mv-bfs'));
+      if (!(bfs > 0)) continue;
+      el.setAttribute('data-mv-tx', '1');
+      try {
+        el.style.setProperty('font-size', (bfs * k).toFixed(2) + 'px', 'important');
+        el.style.setProperty('line-height', (bfs * k * MAT_LH_RATIO).toFixed(2) + 'px', 'important');
+      } catch (e2) {}
+    }
+  }
+  function appMatRestore(group) {
+    var g = group || (appCur && appCur.group);
+    if (!g) return;
+    var hit = [];
+    try { hit = [].slice.call(g.querySelectorAll('.left-section [data-mv-tx="1"]')); } catch (e) {}
+    appTxRestore(hit);
+  }
+  /* 屏幕上真实有多大：材料里最大的那处字号 × 包裹层的缩放比 */
+  function appMatPx() {
+    var s = appCur && appCur.sides && appCur.sides.left;
+    var wrap = s ? appFitMatWrapOf(s) : null;
+    var sc = wrap ? appFitScaleOfWrap(wrap) : 1;
+    var nodes = appMatNodes(), v = 0, i, fs;
+    for (i = 0; i < nodes.length; i++) {
+      if (!nodes[i].getAttribute('data-mv-bfs')) continue;
+      try { fs = parseFloat(getComputedStyle(nodes[i]).fontSize); } catch (e) { fs = 0; }
+      if (fs > v) v = fs;
+    }
+    return v * (sc > 0 ? sc : 1);
+  }
+  function appMatImgW(img) {
+    try { return img.getBoundingClientRect().width; } catch (e) { return 0; }
+  }
+  /* 二分求最大 k：图宽随 k 单调下降，找「刚好还 ≥ 下限」的那个点。
+     搜索途中用 appFitFast（2~3 次重排），最后一步才走 appFitMatSide 精确收敛。 */
+  function appMatSolve() {
+    /* v2.9.40：材料自动最大已删除 —— 材料保持粉笔原样，一个字都不写。
+       留空壳是为了让历史挂点（图片 load 回调 / 旧 Aa 按钮）不至于报未定义。 */
+    if (appCur) { appCur.matK = 1; appCur.matPx = 0; }
+    return;
+    if (!appCur || appCur.stroke) return;
+    var s = appCur.sides && appCur.sides.left;
+    if (!s || !s.host || !s.host.clientWidth) return;
+    var img = s.host.querySelector('.material-content img');
+    if (!appMatAutoOn()) { appCur.matK = 1; return; }
+    var paneW = s.host.clientWidth;
+    /* 图还没加载完（naturalWidth=0）→ 量出来的图宽是 0，二分会被判成「怎么放大都不行」。 
+       这时候什么都不写，等它 load 完了再解一次。 */
+    if (img && !(img.complete && img.naturalWidth > 0)) {
+      if (!appCur.matImgWait) {
+        appCur.matImgWait = 1;
+        try {
+          img.addEventListener('load', function () {
+            if (!appCur) return;
+            appCur.matImgWait = 0;
+            appMatSolveDeb();
+          }, { once: true });
+        } catch (eL) {}
+      }
+      return;
+    }
+    var nat = (img && img.naturalWidth) || 700;
+    var floor = Math.min(nat, paneW) * MAT_IMG_FLOOR;
+    appMatApply(1);                      // 100% 基准（图最大那一档）
+    if (!img) { appCur.matK = 1; appCur.matPx = appMatPx(); return; }
+    appFitMatSide(s, false);
+    var lo = MAT_K_MIN, hi = MAT_K_MAX, best = MAT_K_MIN, i, mid, wrap;
+    for (i = 0; i < MAT_K_STEPS; i++) {
+      mid = (lo + hi) / 2;
+      appMatApply(mid);
+      wrap = appFitMatWrapOf(s);
+      if (wrap) { try { appFitFast(wrap, s.host.clientWidth, s.host.clientHeight - 4); } catch (e) {} }
+      if (appMatImgW(img) >= floor) { best = mid; lo = mid; } else { hi = mid; }
+    }
+    appMatApply(best);
+    appFitMatSide(s, false);             // 定稿：精确收敛到刚好一屏
+    appCur.matK = best;
+    appCur.matPx = appMatPx();
+  }
+  var appMatSolveTimer = 0;
+  function appMatSolveDeb() {
+    if (appMatSolveTimer) clearTimeout(appMatSolveTimer);
+    appMatSolveTimer = setTimeout(function () {
+      appMatSolveTimer = 0;
+      /* v2.9.40：材料自动最大已删除；转屏 / 栏宽变化只重新解右栏题干选项。 */
+      try { appRightSolve(); } catch (eR) {}
+    }, 260);
+  }
+
+  /* ---- v2.9.39：右栏题干 / 选项「自动最大」 ----
+     跟材料不是同一个物理过程：材料有图，字号放大让一屏缩放 s 变小、图跟着缩，
+     于是「字越大图越小」，可以用图宽当刹车。右栏是五道题的纯文字塞一屏，
+     没有图让空间，字号 k 与 s 会互相抵消；而且 k 大到一定程度选项会折成两行、
+     题干折行暴涨，s 掉得更快，屏幕字号反而回头。
+     所以这里不写死倍率，运行时在真机 DOM/CSS 上网格扫一遍：
+       每档 = 落定文字样式 → appFitFast 快速收敛一屏 → 量「屏幕真实字号」
+             = 右栏文字最大 computed font-size × 包裹层 scale
+       淘汰条件 = 选项折行比原样多出一行以上 / 内容超出一屏
+     取剩下里屏幕字号最大的那档。真机栏宽、题目长度、原生 CSS 变了，
+     答案自己跟着变；不依赖任何离线量出来的常数。 */
+  function appRightWrap() {
+    var s = appCur && appCur.sides && appCur.sides.right;
+    return s ? appFitMatWrapOf(s) : null;
+  }
+  function appRightScale() {
+    var w = appRightWrap();
+    var v = w ? appFitScaleOfWrap(w) : 1;
+    return v > 0 ? v : 1;
+  }
+  /* 屏幕上真实有多大：右栏文字层里最大的字号 × 一屏缩放比 */
+  function appRightPx() {
+    var s = appCur && appCur.sides && appCur.sides.right;
+    if (!s || !s.host) return 0;
+    var sc = appRightScale(), v = 0;
+    var hit = s.host.querySelectorAll('[data-mv-tx="1"]');
+    for (var i = 0; i < hit.length; i++) {
+      var fs = 0;
+      try { fs = parseFloat(getComputedStyle(hit[i]).fontSize); } catch (e) {}
+      if (fs > v) v = fs;
+    }
+    return v * sc;
+  }
+  /* 选项折行：取所有选项行里最「高」的那行，换算成「几倍行距」。
+     getBoundingClientRect 已带 scale，除回去才是布局行数。 */
+  function appRightLines() {
+    var s = appCur && appCur.sides && appCur.sides.right;
+    if (!s || !s.host) return 0;
+    var sc = appRightScale(), mx = 0;
+    var lis = s.host.querySelectorAll('li.choice-radio, li[class*="choice"]');
+    for (var i = 0; i < lis.length; i++) {
+      var li = lis[i], lh = 0;
+      try { lh = parseFloat(getComputedStyle(li).lineHeight); } catch (e) {}
+      if (!(lh > 0)) continue;
+      var h = li.getBoundingClientRect().height / sc;
+      var v = h / lh;
+      if (v > mx) mx = v;
+    }
+    return mx;
+  }
+  function appRightVis() {
+    var w = appRightWrap();
+    return w ? w.scrollHeight * appRightScale() : 0;
+  }
+  /* 真正的一屏高度 = 滚动容器的可视高（分栏时 .right-section 被写成 height:auto，
+     外层 .right 才是裁剪视口）。只在定稿后复核用，不参与搜索，
+     免得跟 appFitMatSide 自己的 host.clientHeight 口径打架。 */
+  function appRightScreenH() {
+    var s = appCur && appCur.sides && appCur.sides.right;
+    if (!s) return 0;
+    var sc = s.scroller && s.scroller.clientHeight;
+    return sc > 80 ? sc : (s.host ? s.host.clientHeight : 0);
+  }
+  function appRightCuts() {
+    var s = appCur && appCur.sides && appCur.sides.right;
+    var w = appRightWrap();
+    if (!s || !s.host || !w) return false;
+    /* 「一屏」沿用脚本自己的口径：appFitMatSide 用 host.clientHeight - 4 当目标高。
+       分栏时 .right-section 被写成 height:auto，外层 .right 才是裁剪容器，
+       这里不另立一套高度定义，免得跟定稿那次 appFitMat() 算出不同的 scale。
+       搜索阶段是预览版缩放，留 12px 容差；最终一屏由定稿的严格收敛保证。 */
+    var H = s.host.clientHeight - 4;
+    return appRightVis() > H + 12;
+  }
+  function appRightSolve() {
+    if (!appCur || appCur.stroke) return;
+    var s = appCur.sides && appCur.sides.right;
+    if (!s || !s.host) return;
+    if (!appMatAutoOn()) { appCur.rghtK = 0; return; }
+    var Hraw = s.host.clientHeight, W = s.host.clientWidth;
+    if (!(W > 120) || !(Hraw > 80) || !appRightWrap()) return;
+    var H = Hraw - 4, i, k;
+    /* 基准档：量「粉笔原样」的选项行数当容忍基线（不猜绝对值，
+       原生 li 自带 padding / radio 圆圈时高度本来就不止一行）。 */
+    appCur.rghtK = RGHT_K_MIN;
+    appCur.txSig = null;
+    try { appTxApply(); } catch (eB) {}
+    var w0 = appRightWrap();
+    if (w0) { try { appFitFast(w0, W, H); } catch (eB2) {} }
+    var baseLines = appRightLines();
+    var limit = baseLines * RGHT_LINE_SLACK + 0.25;
+    /* 网格扫：折行是离散跳变、屏幕字号又未必单调，二分会陷在局部里。
+       7 个采样点足够贴住峰值，每档只走两次重排的预览版缩放。 */
+    var best = RGHT_K_MIN, bestPx = appRightPx();
+    var step = (RGHT_K_MAX - RGHT_K_MIN) / RGHT_K_STEPS;
+    for (i = 1; i <= RGHT_K_STEPS; i++) {
+      k = RGHT_K_MIN + step * i;
+      appCur.rghtK = k;
+      appCur.txSig = null;                 // 强制文字层按新 k 重写
+      try { appTxApply(); } catch (e0) {}
+      var w = appRightWrap();
+      if (w) { try { appFitFast(w, W, H); } catch (e1) {} }
+      if (appRightLines() > limit || appRightCuts()) continue;
+      var px = appRightPx();
+      if (px > bestPx + 0.05) { bestPx = px; best = k; }
+    }
+    appCur.rghtK = best;
+    appCur.txSig = null;
+    try { appTxApply(); } catch (e2) {}
+    try { appFitMat(); } catch (e3) {}     // 定稿：精确收敛到刚好一屏
+    /* 一屏是硬前提：定稿后按【真正可视区】再复核一次。某些内核里
+       .right-section 的 height:auto 会让 appFitMatSide 量到内容高而不是视口高，
+       缩放没介入；这时宁可退回 100% 字号 —— 行距仍锁 1.06（内容比原样矮、
+       屏幕字反而更大），但绝不会把 5 道题推得滚出屏外。 */
+    var screenH = appRightScreenH();
+    if (best > RGHT_K_MIN && screenH > 80 && appRightVis() > screenH + 6) {
+      appCur.rghtK = RGHT_K_MIN;
+      appCur.txSig = null;
+      try { appTxApply(); } catch (e4) {}
+      try { appFitMat(); } catch (e5) {}
+    }
+    appCur.rghtPx = appRightPx();
+  }
+
+  /* 改了文字尺寸 → 内容高变了 → 一屏缩放和选项列数都要重算，顺序照进场那套 */
+  function appTxRefresh(fast) {
+    if (!appCur) return;
+    /* 文字尺寸变了 → 内容高变了 → 一屏缩放要重新量。
+       只跑一次；列数自适应有自己的观察器会跟上来，同步反复调它反而互相打架。 */
+    try { appFitMat(fast); } catch (e) {}
+    appAaSync();
+  }
+  /* v2.9.30：拖动滑块时的节拍器 —— 领先触发的节流（不是防抖）。
+     原来用 160ms 防抖：拖的时候一次都不应用，手指一停才跳一下，手感就是抽。
+     现在每 60ms 最多算一次，文字样式每一拍都跟着走，缩放走预览版。 */
+  /* v2.9.30：拖动标记 —— 拖滑块 / 拖交界线的那段时间，700ms 看门狗别再插手。
+     以前看门狗会在这期间量画布、按住行内样式、发现栏宽对不上就 appApplyCols 重铺，
+     三次「我觉得该重算」叠在用户的一次拖动上，画面就是抽。
+     用时间戳而不是布尔量：指针在窗外松开 / pointercancel 丢了也不会永久卡住。 */
+  function appDragMark(ms) {
+    if (appCur) appCur.dragUntil = Date.now() + (ms || 700);
+  }
+  function appDragging() {
+    return !!(appCur && appCur.dragUntil && Date.now() < appCur.dragUntil);
+  }
+  var appTxFastTimer = 0;
+  function appTxFastTick() {
+    appDragMark(600);
+    if (appTxFastTimer) return;
+    appTxFastTimer = setTimeout(function () {
+      appTxFastTimer = 0;
+      try { appFitMat(true); } catch (e) {}
+    }, 60);
+  }
+  function appTxSet(which, v) {
+    if (appTxTimer) { clearTimeout(appTxTimer); appTxTimer = 0; }
+    if (appTxFastTimer) { clearTimeout(appTxFastTimer); appTxFastTimer = 0; }
+    if (which === 'cw') {
+      appSetColWidth(Math.round(appColTotalW() * v), true, false);
+      try { appOnResize(); } catch (e) {}     // 栏宽变了：列数 / 一屏 / 画布全套重算
+      appAaSync();
+      return;
+    }
+    appTxSetOn();
+    appTxSave(which === 'fs' ? APP_TX_FS_LS : APP_TX_LH_LS, v);
+    appTxRefresh();
+  }
+  /* 拖动时数值立刻跟着走，重排改「每 60ms 一拍 + 预览版缩放」，松手（change）再做精确收敛 */
+  function appTxInput(which, v) {
+    if (appTxTimer) clearTimeout(appTxTimer);
+    if (which === 'cw') {
+      appSetColWidth(Math.round(appColTotalW() * v), true, false);
+      appAaSync();
+      appTxFastTick();
+      return;
+    }
+    appTxSetOn();
+    appTxSave(which === 'fs' ? APP_TX_FS_LS : APP_TX_LH_LS, v);
+    appAaSync();
+    appTxFastTick();      // 文字与缩放都交给同一个 60ms 节拍，两者永远同一帧到位
+  }
+  var appTxTimer = 0;
+  function appTxReset() {
+    /* v2.9.40：自动档开着时，「恢复原样」必须把它一起关掉，
+       否则 appTxFs / appTxOn 仍被自动值接管，点完看起来毫无反应。
+       appMatRestore 只负责清掉旧版可能留在材料上的标记，材料恒为粉笔原样。 */
+    if (appMatAutoOn()) {
+      appMatSetAuto(false);
+      try { appMatRestore(); } catch (eA) {}
+      if (appCur) { appCur.matK = 1; appCur.matPx = 0; appCur.rghtK = 0; appCur.rghtPx = 0; appCur.txSig = null; }
+    }
+    try {
+      localStorage.removeItem(APP_TX_ON_LS);
+      localStorage.removeItem(APP_TX_FS_LS);
+      localStorage.removeItem(APP_TX_LH_LS);
+      localStorage.removeItem(APP_COL_LS);   // v2.9.28：栏宽一起回自动
+    } catch (e) {}
+    if (appTxTimer) { clearTimeout(appTxTimer); appTxTimer = 0; }
+    if (appSplitTimer) { clearTimeout(appSplitTimer); appSplitTimer = 0; }
+    appTxRefresh();                          // 先把逐元素写上去的样式还回去
+    try { appOnResize(); } catch (e) {}      // 再按自动比例重铺两栏
+    appAaSync();
+    cvToast('字号 / 栏宽已恢复粉笔原样');
+  }
+
+  function appAaSync() {
+    var p = document.getElementById(APP_AA_ID);
+    if (!p) return;
+    /* v2.9.39：自动档接管右栏时，手动字号滑块让位（置灰 + 显示「自动」）。
+       想手调就点「已还原样」把自动关掉，滑块立刻恢复，不新增任何按钮。
+       v2.9.41：行距那条滑块已删 —— 自动档行距恒锁 1.06×字号、不用再手调，
+       浮层里也不再留一个「看不见又调不了」的旋钮。 */
+    var auto = appMatAutoOn();
+    var fs = appTxFs(), on = appTxOn();
+    var fsR = p.querySelector('[data-tx="fs"]');
+    if (fsR) { fsR.value = String(Math.round(fs * 100)); fsR.disabled = auto; }
+    var fv = p.querySelector('[data-txv="fs"]');
+    if (fv) fv.textContent = auto ? '自动' : (on ? (Math.round(fs * 100) + '%') : '原样');
+    /* v2.9.28：栏宽那条。没手动设过时显示「自动」，滑块停在当前的自动比例上。
+       正在拖它时别回写 value —— 比例换算会有 1% 舍入，手感会一格一格跳。 */
+    var manual = appColManual(), W = appColTotalW();
+    var cur = manual;
+    if (cur === null) cur = (appCur && appCur.colW && W) ? appCur.colW.l / W : 0.5;
+    var cwR = p.querySelector('[data-tx="cw"]'), cv = p.querySelector('[data-txv="cw"]');
+    if (cwR && document.activeElement !== cwR) cwR.value = String(Math.round(cur * 100));
+    if (cv) cv.textContent = manual === null ? '自动' : (Math.round(manual * 100) + '%');
+    /* v2.9.40：材料自动最大已删除（材料恒为粉笔原样），浮层只留题干选项一行；
+       mval 沿用旧属性名，现在显示的是右栏屏幕真实字号。 */
+    var mval = p.querySelector('[data-txv="mat"]');
+    if (mval) {
+      var rp = appCur && appCur.rghtPx;
+      mval.textContent = auto
+        ? ('自动 ' + (rp > 0 ? Math.round(rp) + 'px' : '计算中') + ' · 行距最密')
+        : '原样（手动）';
+    }
+    var mbtn = p.querySelector('[data-tx="matauto"]');
+    if (mbtn) {
+      mbtn.textContent = auto ? '自动最大' : '已还原样';
+      mbtn.setAttribute('data-on', auto ? '1' : '0');
+    }
+    var rst = p.querySelector('[data-tx="reset"]');
+    if (rst) rst.disabled = !on && manual === null;
+  }
+  function appAaPop() {
+    var p = document.getElementById(APP_AA_ID);
+    if (p) return p;
+    p = document.createElement('div');
+    p.id = APP_AA_ID;
+    function row(label, key, lo, hi) {
+      var row = document.createElement('div');
+      row.className = 'maa-row';
+      var l = document.createElement('span'); l.className = 'maa-lbl'; l.textContent = label;
+      var r = document.createElement('input');
+      r.type = 'range'; r.className = 'maa-rng';
+      r.min = String(lo); r.max = String(hi); r.step = '1';
+      r.setAttribute('data-tx', key);
+      r.addEventListener('input', function () { appTxInput(key, parseInt(r.value, 10) / 100); }, true);
+      r.addEventListener('change', function () {
+        if (appCur) appCur.dragUntil = 0;      // 松手 → 看门狗恢复
+        appTxSet(key, parseInt(r.value, 10) / 100);
+      }, true);
+      var v = document.createElement('span'); v.className = 'maa-val'; v.setAttribute('data-txv', key);
+      row.appendChild(l); row.appendChild(r); row.appendChild(v);
+      p.appendChild(row);
+    }
+    row('字号', 'fs', 85, 160);
+    /* v2.9.41：行距滑块已删（用户原话「这个调行距的删了吧，现在默认这个自动的就非常好」）。
+       自动档行距恒锁 1.06×字号；手动档沿用旧值，不再给一个调不了的旋钮。 */
+    row('栏宽', 'cw', Math.round(COL_MIN * 100), Math.round(COL_MAX * 100));
+    /* v2.9.40：材料自动最大已删除，材料保持粉笔原样。
+       这一行改成「题干选项」的只读数值 + 那颗自动最大开关，不新增任何按钮。 */
+    var mrow = document.createElement('div');
+    mrow.className = 'maa-row maa-mat';
+    var mlbl = document.createElement('span'); mlbl.className = 'maa-lbl'; mlbl.textContent = '题干选项';
+    var mval = document.createElement('span');
+    mval.className = 'maa-val maa-matval'; mval.setAttribute('data-txv', 'mat');
+    var mbtn = document.createElement('button');
+    mbtn.type = 'button'; mbtn.className = 'maa-matbtn'; mbtn.setAttribute('data-tx', 'matauto');
+    mbtn.addEventListener('click', function (ev) {
+      ev.preventDefault(); ev.stopPropagation();
+      var on = !appMatAutoOn();
+      appMatSetAuto(on);
+      if (!on) {
+        if (appCur) { appCur.rghtK = 0; appCur.rghtPx = 0; appCur.txSig = null; }
+        try { appTxRefresh(); } catch (e2) {}
+      } else {
+        try { appRightSolve(); } catch (e5) {}
+        try { appTxRefresh(); } catch (e4) {}
+      }
+      appAaSync();
+    }, true);
+    mrow.appendChild(mlbl); mrow.appendChild(mval); mrow.appendChild(mbtn);
+    p.appendChild(mrow);
+    var tip = document.createElement('div');
+    tip.className = 'maa-tip';
+    tip.textContent = '100% = 粉笔原样；栏宽 = 左栏占比，只在这条滑块上调。'
+      + '一屏始终还是一屏。题干与选项的字号自动取到最大、行距压到最密；'
+      + '材料保持粉笔原样。关掉「自动最大」后字号滑块才生效。两栏之间不再有分隔条，'
+      + '笔可以从左面一路写到右面。';
+    p.appendChild(tip);
+    var rst = document.createElement('button');
+    rst.type = 'button'; rst.className = 'maa-rst'; rst.setAttribute('data-tx', 'reset');
+    rst.textContent = '恢复粉笔原样';
+    rst.addEventListener('click', function (ev) {
+      ev.preventDefault(); ev.stopPropagation(); appTxReset();
+    }, true);
+    p.appendChild(rst);
+    document.body.appendChild(p);
+    return p;
+  }
+  function appAaToggle(btn, which) {
+    var p = appAaPop();
+    appFormulaClose();               // v2.9.33：两个浮层互斥
+    which = which || 'fs';
+    if (p.classList.contains('on')) {
+      if (p.getAttribute('data-focus') === which) {   // 点同一颗 = 收起
+        p.classList.remove('on'); p.removeAttribute('data-focus'); return;
+      }
+    }
+    var r = null;
+    try { r = btn.getBoundingClientRect(); } catch (e) {}
+    if (!r) return;
+    p.classList.add('on');
+    p.setAttribute('data-focus', which);
+    [].slice.call(p.querySelectorAll('.maa-row')).forEach(function (row) {
+      var s = row.querySelector('[data-tx]');
+      row.classList.toggle('focus', !!(s && s.getAttribute('data-tx') === which));
+    });
+    var w = p.offsetWidth || 258;
+    var vw = window.innerWidth || 1024;
+    var left = Math.max(6, Math.min(r.right - w, vw - w - 6));
+    p.style.left = Math.round(left) + 'px';
+    p.style.top = Math.round(r.bottom + 6) + 'px';
+    appAaSync();
+  }
+  function appAaClose() {
+    var p = document.getElementById(APP_AA_ID);
+    if (p) { p.classList.remove('on'); p.removeAttribute('data-focus'); }
+  }
+  /* 点别处收起：挂在 appShieldDown 最前面（那里一定会跑到，不会被别人 stop 掉） */
+  function appAaMaybeClose(ev) {
+    var p = document.getElementById(APP_AA_ID);
+    if (!p || !p.classList.contains('on')) return;
+    var t = ev.target;
+    if (t && t.closest && (t.closest('#' + APP_AA_ID) ||
+        t.closest('#marvis-app-bar [data-k="aa"]'))) return;
+    p.classList.remove('on');
+    p.removeAttribute('data-focus');
+  }
+
+  /* ---- v2.9.34 公式大全 ----
+     用户 2026-11-12 改口：「一个屏幕放不下就做成两个按钮，不要滚动慢慢找」。
+     于是顶栏两颗按钮各开一页，两页都 overflow:hidden、一屏放完：
+     百化分 = 4 列网格把 44 行压成 6 行；公式 = 8 个考点按钮切换，一次只出 5~9 条。
+     固定居中、白底、纯查阅 —— 不铺画布、不落笔，也不做纸那套拖动 / 三档 / 半透明。
+     数据全是内联静态文本（对照 GitHub 上的资料分析笔记与华图公式表核过），
+     @grant none 的脚本不引任何外部资源。 */
+  var MF_BASE = [
+    ['1/2', '50%'], ['1/3', '33.3%'], ['1/4', '25%'], ['1/5', '20%'],
+    ['1/6', '16.7%'], ['1/7', '14.3%'], ['1/8', '12.5%'], ['1/9', '11.1%'],
+    ['1/10', '10%'], ['1/11', '9.1%'], ['1/12', '8.3%'], ['1/13', '7.7%'],
+    ['1/14', '7.1%'], ['1/15', '6.7%'], ['1/16', '6.25%'], ['1/17', '5.9%'],
+    ['1/18', '5.6%'], ['1/19', '5.3%'], ['1/20', '5%'], ['1/25', '4%'],
+    ['1/30', '3.3%'], ['1/50', '2%']
+  ];
+  var MF_MULT = [
+    ['2/3', '66.7%'], ['3/4', '75%'], ['2/5', '40%'], ['3/5', '60%'],
+    ['4/5', '80%'], ['5/6', '83.3%'], ['2/7', '28.6%'], ['3/7', '42.9%'],
+    ['4/7', '57.1%'], ['5/7', '71.4%'], ['6/7', '85.7%'], ['3/8', '37.5%'],
+    ['5/8', '62.5%'], ['7/8', '87.5%'], ['2/9', '22.2%'], ['4/9', '44.4%'],
+    ['5/9', '55.6%'], ['7/9', '77.8%'], ['8/9', '88.9%'], ['3/11', '27.3%'],
+    ['5/12', '41.7%'], ['7/12', '58.3%']
+  ];
+  /* 统一记号（v2.9.43）：A / B 按考点走 —— 增长组 A 现期、B 基期；
+     比重 / 平均数 / 倍数里 A 是分子（部分、总量）、B 是分母（整体、份数）。
+     X 增长量、r 增长率；a = 分子增速、b = 分母增速。
+     用户 13:27 定稿：比重组原先单独用的 P / Q 一律改用 A / B，跟其它组统一。 */
+  var MF_SECS = [
+    ['一、增长：现期 / 基期 / 增长量 / 增长率', [
+      ['现期量 A', 'A = B ×(1 + r) = B + X'],
+      ['基期量 B', 'B = {{A::1 + r}} = A − X'],
+      ['增长量 X', 'X = A − B = B × r = {{A × r::1 + r}}'],
+      ['增长率 r', 'r = {{X::B}} = {{A − B::B}} = {{A::B}} − 1'],
+      ['发展速度', '{{A::B}} = 1 + r'],
+      ['百化分秒杀', 'r ≈ {{1::n}} → X ≈ {{A::n + 1}}（见左栏）'],
+      ['增长量比大小', '比 {{A × r::1 + r}}；现期与增速同向才可直接判'],
+      ['减少量', 'B − A = {{A × |r|::1 + r}}，r 取负']
+    ]],
+    ['二、隔年 / 年均 / 混合增长', [
+      ['隔年增长率', 'R = r₁ + r₂ + r₁ × r₂'],
+      ['隔年基期', '{{A::(1 + r₁)(1 + r₂)}}'],
+      ['隔年增长量', 'A − 隔年基期'],
+      ['年均增长量', '{{末期 − 初期::n}}，n = 末年 − 初年'],
+      ['年均增长率', '(1 + r)ⁿ = {{末期::初期}}'],
+      ['年均增速近似', 'r ≈ {{({{末期::初期}} − 1)::n}}（偏大，选略小）'],
+      ['n 相同比大小', '只比 {{末期::初期}}，不必开 n 次方'],
+      ['混合增长率', '介于各部分增速之间，偏向基期量大的一方'],
+      ['线段法', '两部分基期量之比 = 到两端距离的反比']
+    ]],
+    ['三、比重', [
+      ['现期比重', '{{A::B}} × 100%'],
+      ['部分 / 整体', 'A = B × 比重；B = {{A::比重}}'],
+      ['基期比重', '{{A::B}} × {{1 + b::1 + a}}'],
+      ['两期比重差', '{{A::B}} × {{a − b::1 + a}}　单位：百分点'],
+      ['比重升降', 'a 大于 b 上升；a 小于 b 下降'],
+      ['各部分之和', '所有部分比重相加 = 100%']
+    ]],
+    ['四、平均数', [
+      ['现期平均数', '{{总量::份数}}'],
+      ['基期平均数', '{{A::B}} × {{1 + b::1 + a}}'],
+      ['平均数增长率', '{{a − b::1 + b}}'],
+      ['平均数增长量', '现期平均 − 基期平均'],
+      ['平均数升降', '分子增速大于分母增速 → 上升']
+    ]],
+    ['五、倍数与比值', [
+      ['A 是 B 的几倍', '{{A::B}}'],
+      ['A 比 B 多几倍', '{{A::B}} − 1'],
+      ['基期倍数', '{{A::B}} × {{1 + b::1 + a}}'],
+      ['番数', '{{A::B}} = 2ⁿ，n 即番数'],
+      ['比值变化率', '{{a − b::1 + b}}，与平均数增长率同形']
+    ]],
+    ['六、百分点 / 贡献率 / 拉动增长', [
+      ['百分点', '两个百分数直接相减，单位是百分点，不是 %'],
+      ['贡献率', '{{部分增长量::整体增长量}} × 100%'],
+      ['拉动增长', '{{部分增长量::整体基期}} × 100%（百分点）'],
+      ['拉动 = 比重 × 增速', '基期比重 × 部分增速'],
+      ['三者关系', '拉动增长 = 整体增长率 × 贡献率']
+    ]],
+    ['七、常见统计口径', [
+      ['进出口总额', '出口 + 进口'],
+      ['顺差 / 逆差', '顺差 = 出口 − 进口；逆差 = 进口 − 出口'],
+      ['产销率', '{{销量::产量}} × 100%'],
+      ['利润率', '{{利润::营业收入}} × 100%'],
+      ['密度 / 城镇化率', '{{人口::面积}}；{{城镇人口::总人口}}'],
+      ['同比 / 环比', '同比比上年同期；环比紧邻的上一个周期'],
+      ['指数（上年 = 100）', '增长率 = {{指数::100}} − 1'],
+      ['成数 / 翻番', '几成 = 十分之几；翻 n 番 = 2ⁿ 倍']
+    ]],
+    ['八、速算与比较', [
+      ['基期小增速近似', '{{A::1 + r}} ≈ A ×(1 − r)，r 越小越准'],
+      ['化除为乘', '{{A::1 + r}} ≈ A ×(1 − r + r²)'],
+      ['截位直除', '选项首位不同截 2 位，首位相同次位不同截 3 位'],
+      ['分数比较', '同分子比分母（小者大）；同分母比分子（大者大）'],
+      ['差分法', '用 {{a − c::b − d}} 与较小分数比较'],
+      ['尾数法', '纯加减且选项尾数不同，只算末 1~2 位'],
+      ['年均增速代入', '把 10%、20% 代进 (1 + r)ⁿ 卡区间']
+    ]]
+  ];
+  /* {{分子::分母}} -> 上下真分数；说明文字里的斜杠按用户要求保持原样，
+     只有百化分表里的 n/d 会转成真分数。嵌套分数由「每轮只替换最内层」递归展开。 */
+  var MF_FRAC_RE = /\{\{([^{}]*?)::([^{}]*?)\}\}/g;
+  function mfRender(t) {
+    var v = String(t), m = /^(\d+)\/(\d+)$/.exec(v);
+    if (m) v = '{{' + m[1] + '::' + m[2] + '}}';
+    var prev, guard = 0;
+    do {
+      prev = v;
+      v = v.replace(MF_FRAC_RE, function (_, a, b) {
+        return '<span class="mf-frac"><i>' + a + '</i><b>' + b + '</b></span>';
+      });
+    } while (v !== prev && ++guard < 8);
+    return v;
+  }
+  function mfTable4(rows) {
+    var n = Math.ceil(rows.length / 4), h = '<div class="mf-grid4">';
+    for (var c = 0; c < 4; c++) {
+      var part = rows.slice(c * n, (c + 1) * n);
+      if (!part.length) break;
+      h += '<table><thead><tr><th>分数</th><th>百分数</th></tr></thead><tbody>';
+      for (var i = 0; i < part.length; i++) {
+        h += '<tr><td class="mf-f">' + mfRender(part[i][0]) + '</td><td class="mf-p">' + part[i][1] + '</td></tr>';
+      }
+      h += '</tbody></table>';
+    }
+    return h + '</div>';
+  }
+  var MF_CATS = ['增长', '隔年·年均', '比重', '平均数', '倍数', '贡献·拉动', '统计口径', '速算'];
+  var MF_CN = ['一', '二', '三', '四', '五', '六', '七', '八'];
+  /* 长文字口诀用小一号灰字：窄列里折两三行最吃高度，紧凑化后 1024 宽也能零滚动 */
+  function mfIsTxt(v) { return v.length >= 18 && /[；，（）才只]/.test(v); }
+  function mfGrp(i) {
+    var sec = MF_SECS[i] || MF_SECS[0];
+    var h = '<div class="mf-grp"><div class="mf-gt">' + MF_CN[i] + ' · ' + (MF_CATS[i] || sec[0]) + '</div>';
+    for (var j = 0; j < sec[1].length; j++) {
+      var name = sec[1][j][0], raw = sec[1][j][1];
+      var body = mfRender(raw).replace(/（([^）]*)）/g, '<small>（$1）</small>');
+      h += '<div class="mf-eq' + (mfIsTxt(raw) ? ' txt' : '') + '"><b>' + name + '</b>' + body + '</div>';
+    }
+    return h + '</div>';
+  }
+  /* 4 列 × 2 行：第一行组 1~4、第二行组 5~8，横着读就是原顺序；零点击、零滚动 */
+  function mfWall() {
+    var cols = [[0, 4], [1, 5], [2, 6], [3, 7]], h = '<div class="mf-wall">';
+    for (var c = 0; c < cols.length; c++) {
+      h += '<div class="mf-col">' + mfGrp(cols[c][0]) + mfGrp(cols[c][1]) + '</div>';
+    }
+    return h + '</div>';
+  }
+  function appFormulaHTML() {
+    var bh = '<div class="mf-page" data-p="bh">' +
+      '<div class="mf-tip">增长率 r ≈ 1/n 时：<b>增长量 ≈ 现期 ÷(n + 1)</b>，' +
+      '下降量 ≈ 现期 ÷(n − 1)。百化分就是把 A × r ÷(1 + r) 变成一步除法。</div>' +
+      '<div class="mf-sec">基础百化分（必背）</div>' + mfTable4(MF_BASE) +
+      '<div class="mf-sec">常用倍数分数</div>' + mfTable4(MF_MULT) +
+      '<div class="mf-tip mf-foot">倍数法：22.2% = 2 × 11.1% = 2/9　｜　' +
+      '退位法：5% = 1/20，0.5% = 1/200　｜　插值法：10.5% 可取 1/9.5</div>' +
+      '</div>';
+    var f = '<div class="mf-page" data-p="f">' + mfWall() +
+      '<div class="mf-tip mf-sym">符号：增长组 A 现期 / B 基期；比重等组 A 分子 / B 分母；' +
+      'X 增长量、r 增长率；a 分子增速、b 分母增速、n 年份差。</div>' +
+      '</div>';
+    return '<div class="mf-head"><span class="mf-title"></span><span class="mf-sp"></span>' +
+           '<button type="button" class="mf-x" title="收起">×</button></div>' + bh + f;
+  }
+  /* ---- v2.9.35 整版自适应 ----
+     字号、行距、间距、分数大小全用 em 挂在 --mf-k 上，不是单独改字体：
+     在「内容不被裁切」的硬约束下二分出最大的 k，大平板 k 大、小平板 k 小。
+     两页都试一遍取较小的那个，保证点按钮换页时字号不跳。 */
+  var MF_K_MIN = 11.5, MF_K_MAX = 15.5, mfFitRaf = 0;
+  function mfSetK(k) {
+    var p = document.getElementById(APP_FORMULA_ID);
+    if (p) p.style.setProperty('--mf-k', k.toFixed(2) + 'px');
+  }
+  function mfOver() {
+    var p = document.getElementById(APP_FORMULA_ID);
+    if (!p) return 0;
+    var pg = p.querySelector('.mf-page.on') || p.querySelector('.mf-page');
+    if (!pg) return 0;
+    return Math.max(pg.scrollHeight - pg.clientHeight,
+                    pg.scrollWidth - pg.clientWidth,
+                    p.scrollHeight - p.clientHeight);
+  }
+  function mfFitOne() {
+    var lo = MF_K_MIN, hi = MF_K_MAX, best = MF_K_MIN;
+    for (var i = 0; i < 16; i++) {
+      var k = (lo + hi) / 2; mfSetK(k);
+      if (mfOver() <= 0) { best = k; lo = k; } else hi = k;
+    }
+    return best;
+  }
+  function appFormulaFit() {
+    var p = document.getElementById(APP_FORMULA_ID);
+    if (!p || !p.classList.contains('on')) return;
+    if (window.innerWidth <= 900) { mfSetK(13); return; }
+    var pages = p.querySelectorAll('.mf-page'), cur = -1;
+    for (var i = 0; i < pages.length; i++) if (pages[i].classList.contains('on')) cur = i;
+    var k1 = mfFitOne();
+    if (cur >= 0) pages[cur].classList.remove('on');
+    var other = pages[cur === 0 ? 1 : 0];
+    if (other) other.classList.add('on');
+    var k2 = mfFitOne();
+    if (other) other.classList.remove('on');
+    if (cur >= 0) pages[cur].classList.add('on');
+    mfSetK(Math.min(k1, k2));
+  }
+  function appFormulaSetPage(page) {
+    var p = document.getElementById(APP_FORMULA_ID);
+    if (!p) return;
+    p.setAttribute('data-page', page);
+    var t = p.querySelector('.mf-title');
+    if (t) t.textContent = page === 'bh' ? '百化分速查' : '资料分析公式大全';
+    var pages = p.querySelectorAll('.mf-page');
+    for (var i = 0; i < pages.length; i++) {
+      var hit = pages[i].getAttribute('data-p') === page;
+      if (hit) { if (!pages[i].classList.contains('on')) pages[i].classList.add('on'); }
+      else if (pages[i].classList.contains('on')) pages[i].classList.remove('on');
+    }
+    appFormulaSync();
+    appFormulaFit();
+  }
+  function appFormulaPop() {
+    var p = document.getElementById(APP_FORMULA_ID);
+    if (p) return p;
+    p = document.createElement('div');
+    p.id = APP_FORMULA_ID;
+    p.innerHTML = appFormulaHTML();
+    p.querySelector('.mf-x').addEventListener('click', function (ev) {
+      ev.preventDefault(); ev.stopPropagation(); appFormulaClose();
+    }, true);
+    document.body.appendChild(p);
+    if (!window.__mfFitBound) {
+      window.__mfFitBound = true;
+      window.addEventListener('resize', function () {
+        if (mfFitRaf) cancelAnimationFrame(mfFitRaf);
+        mfFitRaf = requestAnimationFrame(function () { appFormulaFit(); });
+      });
+    }
+    appFormulaSetPage('bh');
+    return p;
+  }
+  function appFormulaToggle(page) {
+    var p = appFormulaPop();
+    /* 点同一颗 = 收起；点另一颗 = 直接换页，不用先关再开 */
+    if (p.classList.contains('on') && p.getAttribute('data-page') === page) {
+      appFormulaClose(); return;
+    }
+    appAaClose();                       // 与排版浮层互斥
+    appFormulaSetPage(page);
+    if (!p.classList.contains('on')) p.classList.add('on');
+    appFormulaFit();
+  }
+  function appFormulaClose() {
+    var p = document.getElementById(APP_FORMULA_ID);
+    if (p && p.classList.contains('on')) p.classList.remove('on');
+    appFormulaSync();
+  }
+  function appFormulaSync() {
+    var bs = document.querySelectorAll('#' + APP_BAR_ID + ' [data-mf]');
+    var p = document.getElementById(APP_FORMULA_ID);
+    var on = !!(p && p.classList.contains('on')), page = p && p.getAttribute('data-page');
+    for (var i = 0; i < bs.length; i++) {
+      var hit = on && bs[i].getAttribute('data-mf') === page;
+      if (hit) { if (!bs[i].classList.contains('on')) bs[i].classList.add('on'); }
+      else if (bs[i].classList.contains('on')) bs[i].classList.remove('on');
+    }
+  }
+  /* 点浮窗外面收起；挂在 appShieldDown 最前面，跟 Aa 浮层同一套做法 */
+  function appFormulaMaybeClose(ev) {
+    var p = document.getElementById(APP_FORMULA_ID);
+    if (!p || !p.classList.contains('on')) return;
+    var t = ev.target;
+    if (t && t.closest && (t.closest('#' + APP_FORMULA_ID) ||
+        t.closest('#' + APP_BAR_ID + ' [data-mf]'))) return;
+    appFormulaClose();
+  }
+
+  /* ---- v2.9.25 右栏选项列数自适应（用户定稿方案C：面积最大化） ----
+     目标：不管装不装一页成卷，分栏内每道题的选项都按面积最大化排 ——
+     短选项（A.7 B.6 C.5 D.4）自动一行四个，长选项自动两列，右边不留大片空白；
+     一行放得下就绝不折成两行（折行只省宽、不省面积，还多占一行高）。
+     做法：对每道题的选项列表逐个试 cols = N..1，真实排一次版、量容器高度，
+     取总高最小的那一种（高度相同时取能整除的、列数多的）。
+     一页成卷给选项写的是行内 !important，样式表打不过 —— 只能以行内制行内：
+     进分栏时写行内 !important（原 style 记在 data-marvis-optcol），
+     退出分栏原样还回。只动分栏内这一份，不碰外部脚本的 DOM 结构。 */
+  var OPTCOL_ATTR = 'data-marvis-optcol';
+  var OPTC_GAP = 18;
+  function optcSet(el, prop, val) {
+    if (el.style.getPropertyValue(prop) === val && el.style.getPropertyPriority(prop) === 'important') return;
+    el.style.setProperty(prop, val, 'important');
+  }
+  function optcBasis(cols) {
+    if (cols <= 1) return '100%';
+    return 'calc(' + (100 / cols).toFixed(4) + '% - ' +
+      (OPTC_GAP * (cols - 1) / cols).toFixed(2) + 'px)';
+  }
+  /* 按 cols 列排一次（同步重排，浏览器不绘制中间态） */
+  function optcLayout(ul, lis, cols) {
+    var b = optcBasis(cols);
+    for (var i = 0; i < lis.length; i++) {
+      optcSet(lis[i], 'flex', '0 0 ' + b);
+      /* 一页成卷的 hardenOpts 给选项写死 width / max-width:列宽px ——
+         max-width 会把我们的 flex-basis 钳回它的列宽（实测四列 305px），必须放开 */
+      optcSet(lis[i], 'width', 'auto');
+      optcSet(lis[i], 'max-width', 'none');
+      optcSet(lis[i], 'box-sizing', 'border-box');
+    }
+  }
+  /* 试遍列数，取「总高度最小」的排法 —— 高度最小 = 空白最少 = 面积利用最大；
+     高度打平时再比「文字总行数」（少者优先，避免同高却把选项折得稀碎，
+     实例：'上升了3个百分点以上' 四列会折成两行、两列一行正好放下）；再平取整除、列多的 */
+  function optcPick(ul, lis) {
+    var n = lis.length, best = 1, bestH = Infinity, bestLines = Infinity, bestExact = false;
+    var lh = parseFloat(getComputedStyle(lis[0]).lineHeight) || 0;
+    var maxCols = Math.min(n, 4);
+    for (var c = maxCols; c >= 1; c--) {
+      optcLayout(ul, lis, c);
+      var h = ul.getBoundingClientRect().height || ul.offsetHeight || 0;
+      var lines = 0;
+      if (lh > 0) {
+        for (var i = 0; i < lis.length; i++) {
+          lines += Math.max(1, Math.round(lis[i].scrollHeight / lh));
+        }
+      }
+      var exact = n % c === 0;
+      if (h > 0 && (
+        bestH === Infinity ||
+        h < bestH - 0.6 ||
+        /* 高差在一行文本以内时行数少者优先（row-gap 常让折行排法反而矮几像素，
+           纯比高会把 '上升了3个百分点以上' 这类选项折成两行） */
+        (Math.abs(h - bestH) <= Math.max(0.6, lh * 0.8) && lines < bestLines - 0.5) ||
+        (Math.abs(h - bestH) <= 0.6 && exact && !bestExact))) {
+        best = c; bestH = h; bestLines = lines; bestExact = exact;
+      }
+    }
+    return best;
+  }
+  /* v2.9.25：进场为「不闪」而临时藏起来的右栏，等布局连续两帧稳定再放出来
+     （最多等 600ms 兜底）。判据用 scrollWidth×scrollHeight —— 列数、缩放、
+     图片加载任何一项还在变，尺寸就不会连续相同，也就不会提前放行。 */
+  function appReveal(host) {
+    if (!host) return;
+    var t0 = Date.now(), lastKey = '', same = 0;
+    function step() {
+      if (!host.isConnected) return;
+      var key = host.scrollWidth + 'x' + host.scrollHeight;
+      if (key === lastKey) same++; else { same = 0; lastKey = key; }
+      if (same >= 1 || Date.now() - t0 > 600) {
+        host.style.removeProperty('visibility');
+        return;
+      }
+      requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  /* 列容器公共样式（幂等写：值没变就不写，避免自触发 mutation） */
+  function optcSetUl(ul) {
+    optcSet(ul, 'display', 'flex');
+    optcSet(ul, 'flex-wrap', 'wrap');
+    optcSet(ul, 'column-gap', OPTC_GAP + 'px');
+    optcSet(ul, 'row-gap', '.3em');
+  }
+  /* 一页成卷（以及粉笔本体）也会往这些选项上写行内列宽，两边互相覆盖 —— 这就是
+     「选项自己排好几下版」的主因（实测进场后 3.6 秒里被改回去十来次）。
+     它一写我们就改回来：MutationObserver 回调跑在微任务里，浏览器还没绘制就被覆盖，
+     所以它的排法永远上不了屏。写入幂等，不会互相触发。 */
+  function optcGuard(ul, lis) {
+    if (ul.__marvisGuard) return;
+    var mo = new MutationObserver(function () {
+      if (!appCur || !ul.isConnected) {
+        try { mo.disconnect(); } catch (e) {}
+        ul.__marvisGuard = null;
+        return;
+      }
+      optcSetUl(ul);
+      if (ul.__marvisCols) optcLayout(ul, lis, ul.__marvisCols);
+    });
+    mo.observe(ul, { attributes: true, attributeFilter: ['style'], subtree: true });
+    ul.__marvisGuard = mo;
+  }
+  function appOptColsSide(s, force) {
+    if (!s || !s.host) return;
+    var hostW = Math.round(s.host.clientWidth || 0);
+    var uls = s.host.querySelectorAll('ul.choice-radios, ul[class*="choice"]');
+    for (var i = 0; i < uls.length; i++) {
+      var ul = uls[i];
+      if (ul.getAttribute(OPTCOL_ATTR) === null) {
+        ul.setAttribute(OPTCOL_ATTR, ul.getAttribute('style') || '');
+      }
+      optcSetUl(ul);
+      var lis = [];
+      for (var j = 0; j < ul.children.length; j++) {
+        if (ul.children[j].tagName === 'LI') lis.push(ul.children[j]);
+      }
+      if (!lis.length) continue;
+      for (var k = 0; k < lis.length; k++) {
+        if (lis[k].getAttribute(OPTCOL_ATTR) === null) {
+          lis[k].setAttribute(OPTCOL_ATTR, lis[k].getAttribute('style') || '');
+        }
+      }
+      /* 测量前提：进场时先算列数、再算缩放（此时包裹层还没加宽），量到的就是最终视觉
+         比例；缩放之后一律走上面的缓存，不再重新量 —— 否则同一道题在加宽坐标系里
+         会算出一个不同的答案，看着就是排版自己变。转屏改栏宽时由 appOnResize 先拆
+         包裹层再重算。
+         决策记忆 = 「第几个选项列表 + 各选项文字长度」，存在 appCur 上、不挂在节点上 ——
+         Angular 重渲染会换掉节点，挂节点上的缓存随之丢失、只好重算一遍（表现就是跳版）；
+         存在组级对象上，换节点也照样命中。栏宽 ±4px 以内不重算。 */
+      var baseW = hostW || Math.round(ul.clientWidth || 0);
+      var fp = lis.map(function (li) {
+        return (li.textContent || '').replace(/\s+/g, '').length;
+      }).join(',');
+      var memoKey = i + '|' + fp;
+      var store = appCur && appCur.optcMemo;
+      var memo = store && !force ? store[memoKey] : null;
+      var cols;
+      if (!baseW) {
+        cols = Math.min(2, lis.length);           // 还没布局出来：先按两列占位
+      } else if (memo && memo.cols && Math.abs(baseW - memo.baseW) <= 4) {
+        cols = memo.cols;
+      } else {
+        cols = optcPick(ul, lis);
+        if (store) store[memoKey] = { cols: cols, baseW: baseW };
+      }
+      ul.__marvisCols = cols;
+      optcLayout(ul, lis, cols);
+      optcGuard(ul, lis);
+    }
+  }
+  function appOptColsFix(force) {
+    if (!appCur) return;
+    appOptColsSide(appCur.sides && appCur.sides.right, force);
+  }
+  function appOptColsRestore(scope) {
+    try {
+      [].slice.call((scope || document).querySelectorAll('[' + OPTCOL_ATTR + ']'))
+        .forEach(function (el) {
+          if (el.__marvisGuard) {
+            try { el.__marvisGuard.disconnect(); } catch (e) {}
+            el.__marvisGuard = null;
+          }
+          el.__marvisCols = 0;
+          var saved = el.getAttribute(OPTCOL_ATTR);
+          if (saved) el.setAttribute('style', saved); else el.removeAttribute('style');
+          el.removeAttribute(OPTCOL_ATTR);
+        });
+    } catch (e) {}
+  }
+
+  /* v2.9.25：删除了「手拖分隔条记住比例」的监听（appWatchSplitter）——
+     它只听 pointerup 不校验是否真的拖过，笔迹收尾碰分隔条就会被
+     静默写入手动列宽；且手动模式已整体移除，列宽永远自动。 */
 
   /* ---- 左栏的行内 !important 只能由 JS 覆盖（样式表 !important 打不过行内 !important） ----
      实测：粉笔会在 800ms 内把 position:sticky 等再写回去，所以除了开机时改一次，
@@ -4049,6 +5768,84 @@
            g.style.getPropertyValue('right') !== '0px' ||
            g.style.getPropertyValue('width') !== 'auto';
   }
+  /* ---- v2.9.40：把题号「116.」并进题干首行，「单选题」直接删 ----
+     用户 12:18「把那个 116 单选题那几个字直接并入到下面那行，2024 年前面呗，
+     又能节省出点空间来」；12:28「单选题那几个字直接删了吧，没啥用呀」。
+     标题行原本独占一行（约 40px），一屏就这么被吃掉一块。
+     试过「.title 高度归零 + 题干 text-indent 让位」，但 flex 居中在 0 高度盒里
+     会把题号顶上去，实测比题干首行文字高 18.7px —— 基线对不齐，废弃。
+     现在改成：整条 .title 隐藏（分栏里 .right-section * 本来就 pointer-events:none，
+     标记/收藏走纸头镜像、草稿入口走顶栏），把题号做成自建的 inline <span>
+     插到题干首段最前面。同一个行盒 → 基线天然一致，字号跟着题干自动档一起放大，
+     「单选题」标签根本不复制。Angular 重渲染冲掉后看门狗 700ms 补回，退出分栏删干净。 */
+  var MV_TI_PROPS = ['display'];
+  function appTiSet(el, prop, val) {
+    var a = 'data-mv-ti-' + prop, ap = a + 'p';
+    if (el.getAttribute(a) === null) {
+      el.setAttribute(a, el.style.getPropertyValue(prop));
+      el.setAttribute(ap, el.style.getPropertyPriority(prop));
+      el.setAttribute('data-mv-ti', '1');
+    }
+    if (el.style.getPropertyValue(prop) !== val ||
+        el.style.getPropertyPriority(prop) !== 'important') {
+      el.style.setProperty(prop, val, 'important');
+    }
+  }
+  function appTitleInline() {
+    if (!appCur || !appCur.group) return;
+    var g = appCur.group;
+    var subs = g.querySelectorAll('.right-section app-ti');
+    if (!subs.length) subs = g.querySelectorAll('app-ti');
+    for (var i = 0; i < subs.length; i++) {
+      var sub = subs[i];
+      var title = sub.querySelector('.title');
+      var stem = sub.querySelector('app-format-html p');
+      var idx = sub.querySelector('.title-index');
+      var num = idx ? (idx.textContent || '').trim() : '';
+      if (!title || !stem || !num) continue;
+      appTiSet(title, 'display', 'none');
+      /* 自建节点只认自己插的那一颗，按题号文本幂等更新（Angular 会换节点）。 */
+      var tag = null, kids = stem.children;
+      for (var q = 0; q < kids.length; q++) {
+        if (kids[q].className === 'marvis-ti-num') { tag = kids[q]; break; }
+      }
+      if (!tag) {
+        tag = document.createElement('span');
+        tag.className = 'marvis-ti-num';
+        tag.style.setProperty('font-weight', '700', 'important');
+        tag.style.setProperty('margin-right', '8px', 'important');
+        tag.style.setProperty('white-space', 'nowrap', 'important');
+        stem.insertBefore(tag, stem.firstChild);
+      }
+      if (tag.textContent !== num + ' ') tag.textContent = num + ' ';
+    }
+  }
+  function appTitleRestore(group) {
+    var g = group || (appCur && appCur.group);
+    if (!g) return;
+    /* 先删自建的题号标签，再还原 .title 的 display —— 顺序反了会把标签留在页面上。 */
+    var tags = [];
+    try { tags = [].slice.call(g.querySelectorAll('.marvis-ti-num')); } catch (e) {}
+    for (var t = 0; t < tags.length; t++) {
+      try { if (tags[t].parentNode) tags[t].parentNode.removeChild(tags[t]); } catch (eT) {}
+    }
+    var hit = [];
+    try { hit = [].slice.call(g.querySelectorAll('[data-mv-ti="1"]')); } catch (e2) {}
+    for (var i = 0; i < hit.length; i++) {
+      var el = hit[i];
+      for (var j = 0; j < MV_TI_PROPS.length; j++) {
+        var prop = MV_TI_PROPS[j], a = 'data-mv-ti-' + prop, ap = a + 'p';
+        if (el.getAttribute(a) === null) continue;
+        var v = el.getAttribute(a) || '', pri = el.getAttribute(ap) || '';
+        try {
+          if (v) el.style.setProperty(prop, v, pri); else el.style.removeProperty(prop);
+        } catch (e3) {}
+        el.removeAttribute(a); el.removeAttribute(ap);
+      }
+      el.removeAttribute('data-mv-ti');
+    }
+  }
+
   function appInlineFix() {
     if (!appCur) return;
     var g = appCur.group;
@@ -4087,6 +5884,7 @@
       if (LS.style.getPropertyValue('min-height') !== '100%') LS.style.setProperty('min-height', '100%', 'important');
       if (LS.style.getPropertyValue('height') !== 'auto') LS.style.setProperty('height', 'auto', 'important');
     }
+    appTitleInline();   // v2.9.40：题号行并进题干首行（重渲染 / fp-ts 写回后按住）
   }
   function appWatchInline() {
     if (!appCur || typeof MutationObserver !== 'function') return;
@@ -4181,16 +5979,34 @@
     if (!s || !s.thumb || !s.scroller) return;
     var el = s.scroller, r = el.getBoundingClientRect();
     var ch = el.clientHeight, sh = el.scrollHeight, th = s.thumb;
-    if (r.height < 40 || r.width < 40) { th.classList.remove('on'); return; }
+    if (r.height < 40 || r.width < 40) {
+      if (th.classList.contains('on')) th.classList.remove('on');
+      return;
+    }
     /* v2.9.2：以前只有「需要滚」才显示滑块，内容一旦被内层裁住就静默消失，
        用户以为没有拖动按钮。现在只要这一栏在，就显示一条轨道；
        不能滚时滑块占满整条且颜色更淡（track 样式），能滚才是实心滑块。 */
-    var canScroll = sh > ch + 6;
-    var h = canScroll ? Math.max(48, Math.round(r.height * ch / sh)) : r.height;
+    /* v2.9.31：判断「要不要滚动条」不能只看布局高。
+       一屏缩放是 transform:scale —— 它只改变视觉大小，**布局高一点没变**，
+       所以一屏明明已经正好铺满，scrollHeight 仍比 clientHeight 大（fixture 实测 745 vs 665），
+       滑块就一直挂在那里。用户原话「当两个一屏按钮都打开的时候，这两个灰色滑块其实可以隐藏掉；
+       哪个开关关掉，就把对应的滚动条再显示出来」。
+       所以改成按【视觉高度】判断：缩放后的内容高 = 包裹层高 × 缩放比。
+       一屏开着且视觉上塞得下 → 没有滚动这回事，滑块收起来；
+       一屏关掉（包裹层被拆）→ 自然回落到布局高，滑块回来。 */
+    var wrap = s.host ? appFitMatWrapOf(s) : null;
+    var visH = wrap ? Math.round(wrap.scrollHeight * (appFitScaleOf(s) || 1)) : sh;
+    var canScroll = visH > ch + 6;
+    if (!canScroll) {
+      if (th.classList.contains('on')) th.classList.remove('on');
+      if (th.classList.contains('track')) th.classList.remove('track');
+      return;
+    }
     var maxScroll = sh - ch;
-    var ratio = (canScroll && maxScroll > 0) ? Math.max(0, Math.min(1, el.scrollTop / maxScroll)) : 0;
-    th.classList.add('on');
-    if (canScroll) th.classList.remove('track'); else th.classList.add('track');
+    var h = Math.max(48, Math.round(r.height * ch / Math.max(sh, ch + 1)));
+    var ratio = maxScroll > 0 ? Math.max(0, Math.min(1, el.scrollTop / maxScroll)) : 0;
+    if (!th.classList.contains('on')) th.classList.add('on');
+    if (th.classList.contains('track')) th.classList.remove('track');
     /* 贴右边缘，且夹在视口内（组壳偏出去时滑块会跟着跑出屏，等于没有） */
     var vw = window.innerWidth || document.documentElement.clientWidth || r.right;
     th.style.left = Math.round(Math.max(0, Math.min(r.right - 16, vw - 16))) + 'px';
@@ -4200,6 +6016,96 @@
   function appSyncThumbs() {
     appSyncThumb('left');
     appSyncThumb('right');
+  }
+
+  /* ---- v2.9.31：把页面顶部那条考试倒计时搬进顶栏 ----
+     用户原话「页面外面有这个倒计时在，但是咱们现在好像把这个倒计时给隐藏掉挡住了」。
+     分栏把整块题钉成全屏，倒计时所在的 header 就压在顶栏下面看不见了；
+     而让分栏从倒计时下方开始，等于白扔几十像素高度 —— 那正是「一屏」最缺的东西。
+     所以搬这颗**原生节点**过来：时间照走、暂停按钮还是粉笔自己那颗，
+     一行计时逻辑都不用我们写。退出分栏按锚点原位还回去。 */
+  var APP_TIMER_TEXT_RE = /^\s*\d{1,3}:[0-5]\d(:[0-5]\d)?\s*$/;
+  function appTimerScan() {
+    if (!document.body) return null;
+    var best = null, bestTop = 1e9, bestTop2 = 1e9, guard = 0;
+    var walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+    var n;
+    while ((n = walk.nextNode()) && guard++ < 60000) {
+      var tx = n.nodeValue;
+      if (!tx || tx.length > 10 || !APP_TIMER_TEXT_RE.test(tx)) continue;
+      var el = n.parentElement;
+      if (!el || !el.isConnected || !el.closest) continue;
+      if (el.closest('.ti[' + APP_ATTR + '], #' + APP_BAR_ID)) continue;   // 我们自己的地盘不算
+      var r;
+      try { r = el.getBoundingClientRect(); } catch (e) { continue; }
+      if (r.width < 28 || r.height < 10 || r.width > 220 || r.height > 64) continue;
+      /* 优先取最靠上的一条（考试计时条在页面 header 里）；
+         实在没有顶部的，再退一步取任意位置最靠上的那个。 */
+      if (r.top <= 120) { if (r.top < bestTop2) { bestTop2 = r.top; best = el; } }
+      else if (r.top < bestTop) { bestTop = r.top; if (!best) best = el; }
+    }
+    return best;
+  }
+  /* 计时文本外面那圈（闹钟图标 / 暂停按钮）一起搬，否则只剩一串数字，按不了暂停。
+     v2.9.31 第一版在这里翻车：只限了宽高，结果一路扩到粉笔的 `div.header-left` ——
+     那里面除了 app-timer 还有个「←」返回按钮，搬进顶栏就是用户说的
+     「位置没放对，怎么这么挤」。改成两条硬边界：
+       ① 碰到自定义元素（tag 带 `-`，如 app-timer）就停 —— 组件宿主就是语义边界，
+          再往外是页面排版，不是这个计时器；
+       ② 父元素里出现 `<a>`（导航 / 返回键）就停 —— 计时器内部不会有链接。 */
+  function appTimerBox(el) {
+    var box = el;
+    for (var i = 0; i < 4; i++) {
+      if (box && box.tagName && box.tagName.indexOf('-') > 0) break;
+      var p = box.parentElement;
+      if (!p || p === document.body || p.tagName === 'HTML') break;
+      if (p.closest && p.closest('#' + APP_BAR_ID + ', .ti[' + APP_ATTR + ']')) break;
+      if (p.querySelector('a')) break;
+      var r = p.getBoundingClientRect();
+      if (r.height > 64 || r.width > 460) break;
+      box = p;
+    }
+    return box;
+  }
+  function appTimerAttach() {
+    var w = document.getElementById(APP_TIMER_ID);
+    if (!w || !appCur) return;
+    if (w.__src && w.__src.isConnected && w.__src.parentNode === w) return;   // 已在位
+    if (w.__src) { try { appTimerDetach(); } catch (e) {} }                   // 失联的旧搬运先清干净
+    /* 粉笔重渲染如果反复把这颗节点冲掉，搬来搬去只会闪 —— 试几次就认输 */
+    if ((appCur.timerTries = (appCur.timerTries || 0) + 1) > 6) return;
+    var el = appTimerScan();
+    if (!el) { w.classList.remove('on'); return; }
+    var box = appTimerBox(el);
+    if (!box || !box.parentNode || (box.closest && box.closest('#' + APP_BAR_ID))) {
+      w.classList.remove('on');
+      return;
+    }
+    var anchor = document.createComment('marvis-timer-anchor');
+    try {
+      box.parentNode.insertBefore(anchor, box);
+      w.appendChild(box);
+    } catch (e) {
+      try { if (anchor.parentNode) anchor.parentNode.removeChild(anchor); } catch (e2) {}
+      w.classList.remove('on');
+      return;
+    }
+    w.__src = box;
+    w.__anchor = anchor;
+    w.classList.add('on');
+  }
+  function appTimerDetach() {
+    var w = document.getElementById(APP_TIMER_ID);
+    if (!w) return;
+    var box = w.__src, anchor = w.__anchor;
+    /* 只有确实还在我们手里才搬回去；被粉笔自己拿走/重建了就别再动它 */
+    if (box && box.parentNode === w && anchor && anchor.parentNode) {
+      try { anchor.parentNode.insertBefore(box, anchor); } catch (e) {}
+    }
+    try { if (anchor && anchor.parentNode) anchor.parentNode.removeChild(anchor); } catch (e) {}
+    w.__src = null;
+    w.__anchor = null;
+    w.classList.remove('on');
   }
   function appThumbDrag(side, ev) {
     var s = appCur && appCur.sides[side];
@@ -4252,10 +6158,15 @@
        字母盒（.marvis-lbox）已经在分栏里彻底隐藏，不再是点击目标，也就不再让路；
        更要紧的是：它以前在名单里，笔一落到题目左上角那块就被判成「点 UI」而不落笔，
        正是用户说的「笔触到那儿就断」。 */
+    /* v2.9.26：#marvis-app-aa（顶栏 Aa 的字号浮层）也是自家的 UI，浮在两栏之上，
+       不放进白名单它就会被 appShieldClick 当成「点在纸上」整排吞掉。 */
     return !!(t && typeof t.closest === 'function' &&
               t.closest('#' + APP_BAR_ID + ', .marvis-app-thumb, ' +
                        '#' + APP_SHEET_ID + ' .mas-head, ' +
-                       '#' + APP_SHEET_ID + ' .mas-sz'));
+                       '#' + APP_SHEET_ID + ' .mas-sz, ' +
+                       /* v2.9.43：分隔条已停用，白名单里也摘掉 —— 留着会让落在
+                          交界带的 pointerdown 被当成「点自家 UI」直接放行、不落笔。 */
+                       '#' + APP_AA_ID + ', #' + APP_FORMULA_ID));
   }
   /* ---- v2.9.15：落笔监听从「滚动容器」提到 document 捕获层 ----
      粉笔页面上常驻一批透明覆盖层（.modal-overlay / .tooltip-container / sticky 吸顶条 …
@@ -4284,13 +6195,27 @@
     var b = appSheetBox();
     if (b && x >= b.r.left && x <= b.r.right && y >= b.headBottom && y <= b.r.bottom) return b.side;
     var order = ['right', 'left'];
+    var boxes = {};
     for (var i = 0; i < order.length; i++) {
       var s = appCur.sides[order[i]];
       if (!s || !s.cv || !s.scroller) continue;
       var r;
       try { r = s.scroller.getBoundingClientRect(); } catch (e) { continue; }
       if (!r || r.width < 2 || r.height < 2) continue;
+      boxes[order[i]] = { s: s, r: r };
       if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return s;
+    }
+    /* v2.9.43 起：两栏交界（原来被 16px 分隔条盖着）也让笔写。
+       v2.9.44：两栏已紧贴，仍按中线归到近的一侧；跨栏接力在 appOnMove 里做。
+       只认交界这一条窄带，页面别处一律放行。 */
+    var L = boxes.left, R = boxes.right;
+    if (L && R) {
+      var a = L.r, c = R.r;
+      var lo = Math.min(a.right, c.left) - 8, hi = Math.max(a.right, c.left) + 8;
+      var top = Math.min(a.top, c.top), bot = Math.max(a.bottom, c.bottom);
+      if (x >= lo && x <= hi && y >= top && y <= bot) {
+        return x < (a.right + c.left) / 2 ? L.s : R.s;
+      }
     }
     return null;
   }
@@ -4323,7 +6248,15 @@
   }
   function appShieldDown(e) {
     if (!appCur) return;
-    if (appInOwnUI(e.target)) return;            // 顶栏 / 两颗滚动条 / 纸头按钮 —— 放行
+    appAaMaybeClose(e);                          // v2.9.26：点别处收起 Aa 浮层（先于一切早退）
+    appFormulaMaybeClose(e);                    // v2.9.33：点别处收起公式大全（同一个时机）
+    /* v2.9.43：两颗自定义滚动条（.marvis-app-thumb）也压在两栏交界的窄带上。
+       以前它们跟顶栏一起在白名单里「放行」，笔落在那里既不落墨、又被当成拖滚动条，
+       正是用户说的「这里好像不能用笔去写」。现在只对【笔】开一个例外：笔落到滚动条
+       上照样按坐标落墨；手指 / 鼠标仍放行给滚动条自己的拖动处理器。 */
+    var onThumb = e.target && typeof e.target.closest === 'function' &&
+                  e.target.closest('.marvis-app-thumb');
+    if (appInOwnUI(e.target) && !(onThumb && e.pointerType === 'pen')) return;
     /* 纸头 = 拖动纸的手柄，不是写字。**不能 stopPropagation** ——
        纸头的 pointerdown 还要交给它自己的拖动处理器，一停就拖不动了。
        事件目标是纸头本身（纸在最上层），下面那层本来也收不到。 */
@@ -4436,6 +6369,48 @@
     window.addEventListener('pointerup', appOnUp, true);
     window.addEventListener('pointercancel', appOnUp, true);
   }
+  /* v2.9.43：一笔从左栏划到右栏时把线「接力」到另一侧画布。
+     两栏各有一张独立画布，旧版 st.side 一笔定死，越过交界的点全算在旧画布外、
+     被 canvas 裁掉 —— 这就是用户说的「这里不能用笔写，从页面左面通不到右面」。
+     这里只换画布：旧段就地记进历史，新段从同一个屏幕点起笔；
+     不补点、不插值、不改采样序列（v2.9.4 的补密规矩一行未动）。
+     同一笔拆出的各段带同一个 grp，撤销 / 反撤按整笔一起走。 */
+  function appStrokeHop(st, from, to, seed) {
+    if (!appCur || !st || !to || !to.cv) return from;
+    var oldPts = st.pts;
+    var g = st.grp || (st.grp = 'x' + Date.now().toString(36) +
+                                Math.random().toString(36).slice(2, 6));
+    if (oldPts.length > 1) {
+      appCur.acts.length = appCur.at;          // 撤销后写新笔：截断重做栈
+      appCur.acts.push({ t: 'stroke', side: st.side, color: st.color,
+                         w: st.w, pts: oldPts, grp: g });
+      appCur.at = appCur.acts.length;
+      if (appCur.acts.length > 600) { appCur.acts.shift(); appCur.at--; }
+    }
+    var r0, r1;
+    try {
+      r0 = from.cv.getBoundingClientRect();
+      r1 = to.cv.getBoundingClientRect();
+    } catch (e0) { return from; }
+    /* v2.9.44：seed = 跨界【之前】那一个采样点（相对 from 画布）。
+       跨界点已经被追加进旧段了，若还拿它当新段起点，新段两点重合 → 右栏那半截线
+       根本画不出来。新段必须从 seed 起笔，才会从「旧点 → 当前点」整条再画一遍。 */
+    var last = seed || oldPts[oldPts.length - 1] || [0, 0];
+    st.side = to.cv.__appSide || (to === appCur.sides.left ? 'left' : 'right');
+    st.pts = [[r0.left + last[0] - r1.left, r0.top + last[1] - r1.top]];
+    try {
+      to.ctx.strokeStyle = st.color;
+      to.ctx.lineWidth = st.w;
+      to.ctx.lineCap = 'round';
+      to.ctx.lineJoin = 'round';
+    } catch (e1) {}
+    if (st.guard && st.guardEl) {
+      try { st.guardEl.removeEventListener('scroll', st.guard, { passive: true }); } catch (e2) {}
+      st.guard = null; st.guardEl = null;
+    }
+    appScrollGuard(to.scroller, st);
+    return to;
+  }
   function appOnMove(e) {
     var st = appCur && appCur.stroke;
     if (!st || st.dead) return;
@@ -4463,6 +6438,30 @@
       }
     } catch (err) { seq = [e]; }
     for (var k = 0; k < seq.length; k++) {
+      /* v2.9.44：按采样点的屏幕坐标判归属，跨栏就把这一笔接力过去。
+         关键：跨过交界的那一条线段要【两张画布各画一遍】。旧版只在新画布画
+         last → 当前点，旧画布停在 last，last → 旧栏右缘这一截永远空白 ——
+         真机截图里每条跨栏线中间断开几十像素，就是这么来的。
+         这里先在旧画布把这段补齐（超出右缘的部分由 canvas 自己裁掉），
+         再把当前点记进旧段存档；随后接力仍以 last 起笔，在新画布再画一遍。
+         不新增采样、不插值（v2.9.4 的补密规矩一行未动）。 */
+      if (st.side !== 'sheet') {
+        var own = appSideAt(seq[k].clientX, seq[k].clientY);
+        if (own && own !== s && own.cv && own.cv.__appSide !== 'sheet') {
+          var pts0 = st.pts, n0 = pts0.length, last0 = pts0[n0 - 1];
+          var pkOld = (seq[k] === e) ? appPt(s.cv, e) : appPt(s.cv, seq[k]);
+          if (n0 === 1) {
+            s.ctx.beginPath();
+            s.ctx.moveTo(last0[0], last0[1]);
+            s.ctx.lineTo(pkOld[0], pkOld[1]);
+            s.ctx.stroke();
+          } else {
+            appSeg(s.ctx, pts0[n0 - 2], last0, pkOld, pkOld);
+          }
+          pts0.push(pkOld);
+          s = appStrokeHop(st, s, own, last0);
+        }
+      }
       var pk = (seq[k] === e) ? appPt(s.cv, e) : appPt(s.cv, seq[k]);
       var pts = st.pts;
       var last = pts[pts.length - 1];
@@ -4582,6 +6581,9 @@
     var h = appHistFor(sheet);
     if (!h || h.at <= 0) return;
     h.at--;
+    /* v2.9.43：跨栏一笔拆成几段（同 grp），撤销要一次撤整笔，不能只撤半条线。 */
+    var g = h.acts[h.at] && h.acts[h.at].grp;
+    if (g) { while (h.at > 0 && h.acts[h.at - 1] && h.acts[h.at - 1].grp === g) h.at--; }
     appRedraw();
     appSaveSoon();
     appBarSync();
@@ -4590,6 +6592,8 @@
     var h = appHistFor(sheet);
     if (!h || h.at >= h.acts.length) return;
     h.at++;
+    var g = h.acts[h.at - 1] && h.acts[h.at - 1].grp;
+    if (g) { while (h.at < h.acts.length && h.acts[h.at] && h.acts[h.at].grp === g) h.at++; }
     appRedraw();
     appSaveSoon();
     appBarSync();
@@ -4998,6 +7002,13 @@
       '</div>' +
       '<div class="mas-body"><canvas class="mas-ink"></canvas></div>';
     document.body.appendChild(el);
+    /* v2.9.26：纸面补一条和两栏同一套的兜底 —— 个别内核不认 touch-action:none，
+       仍把触摸当滚动手势的话，这里把默认动作掐掉（单指；双指缩放留给浏览器）。 */
+    el.addEventListener('touchmove', function (ev) {
+      if (!appCur) return;
+      if (ev.touches && ev.touches.length > 1) return;
+      ev.preventDefault();
+    }, { capture: true, passive: false });
 
     var head = el.querySelector('.mas-head');
     var body = el.querySelector('.mas-body');
@@ -5178,7 +7189,10 @@
     /* v2.9.18：不透明度（半填充圆） */
     alpha: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 4.6a7.4 7.4 0 010 14.8z" fill="currentColor"/></svg>',
     /* v2.9.23：手写开关（手） */
-    hand: '<svg viewBox="0 0 24 24"><path d="M9.1 11.4V6.3a1.45 1.45 0 012.9 0v4.3M12 10.6V5.4a1.45 1.45 0 012.9 0v5.2M14.9 10.8V7.1a1.45 1.45 0 012.9 0v6.9c0 3.3-2.4 5.6-5.6 5.6-2 0-3.3-.7-4.5-2.3l-2.4-3.2a1.5 1.5 0 012.4-1.8l1.4 1.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>'
+    hand: '<svg viewBox="0 0 24 24"><path d="M9.1 11.4V6.3a1.45 1.45 0 012.9 0v4.3M12 10.6V5.4a1.45 1.45 0 012.9 0v5.2M14.9 10.8V7.1a1.45 1.45 0 012.9 0v6.9c0 3.3-2.4 5.6-5.6 5.6-2 0-3.3-.7-4.5-2.3l-2.4-3.2a1.5 1.5 0 012.4-1.8l1.4 1.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>',
+    /* v2.9.34：两颗按钮各开一页 —— 百分号 = 百化分，书本 = 公式 */
+    percent: '<svg viewBox="0 0 24 24"><path d="M19 5L5 19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="7.2" cy="7.2" r="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="16.8" cy="16.8" r="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>',
+    formula: '<svg viewBox="0 0 24 24"><path d="M4.4 5.6c2.8-1.1 5.2-.8 7.6.6 2.4-1.4 4.8-1.7 7.6-.6v12.2c-2.8-1.1-5.2-.8-7.6.6-2.4-1.4-4.8-1.7-7.6-.6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 6.2v12.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.4 9.4c1.4-.4 2.6-.3 3.8.3M6.4 12.4c1.4-.4 2.6-.3 3.8.3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>'
   };
   function appBarSync() {
     var bar = document.getElementById(APP_BAR_ID);
@@ -5195,7 +7209,6 @@
     }
     var wv = bar.querySelector('[data-k="wv"]');
     if (wv) wv.textContent = brushWidth.toFixed(1) + '×';
-    var cf = bar.querySelector('[data-k="colfit"]');
     /* v2.9.23：手写开关的状态 —— 橘色 = 手指也会落墨（防误触关闭） */
     var hw = bar.querySelector('[data-k="handwrite"]');
     if (hw) {
@@ -5204,17 +7217,16 @@
       hw.title = hwOn ? '手指也能写（橘色 = 防误触已关，点一下改回只认笔）'
                       : '只认笔：手掌/手指不落墨（点一下让手指也能写）';
     }
-    if (cf) {
-      var man = !!appCur.manualCol;
-      cf.className = 'mab-btn colfit' + (man ? ' manual' : '');
-      cf.title = man ? '列宽：手动（点此恢复自适应）' : '列宽：自适应';
-    }
+    /* v2.9.25：删除原 colfit 按钮的状态同步（按钮已移除） */
     /* v2.9.20：纸头那三颗（撤销/反撤/清空）跟着同一条历史走，状态一起刷 */
     appSheetSyncTools();
+    appFormulaSync();                 // v2.9.33：顶栏重建后把「公式开着」的高亮补回来
   }
   function appBar() {
     var old = document.getElementById(APP_BAR_ID);
-    if (old) old.remove();
+    /* v2.9.31：顶栏被整条重建时，里面可能正装着【原生的】倒计时节点，
+       直接 remove 会把它连根拔掉（粉笔那边就永远少一块）。先原位还回去。 */
+    if (old) { try { appTimerDetach(); } catch (e) {} old.remove(); }
     var bar = document.createElement('div');
     bar.id = APP_BAR_ID;
     function mk(k, icon, title, fn, extra) {
@@ -5291,7 +7303,7 @@
       bar.appendChild(b);
       return b;
     }
-    wk('wdec', 'A−', '细一点', function () {
+    wk('wdec', '细', '细一点', function () {
       brushWidth = Math.max(0.4, Math.round((brushWidth - 0.2) * 10) / 10);
       saveBrush();
     });
@@ -5299,14 +7311,11 @@
     wv.className = 'mab-wv';
     wv.setAttribute('data-k', 'wv');
     bar.appendChild(wv);
-    wk('winc', 'A+', '粗一点', function () {
+    wk('winc', '粗', '粗一点', function () {
       brushWidth = Math.min(4, Math.round((brushWidth + 0.2) * 10) / 10);
       saveBrush();
     });
-    mk('colfit', 'cols', '列宽按内容自适应', function () {
-      appColsAuto();
-      cvToast('列宽已按内容自适应');
-    }, ' colfit');
+    /* v2.9.25：删掉顶栏「⇔ 列宽按内容自适应」按钮 —— 列宽已全自动 */
     /* v2.9.23：手写开关。放在顶栏而不是纸头 ——
        ① 它要同时管「两栏大画布」，纸收起来时纸头根本不在；
        ② 大档铺满时纸从顶栏下沿开始，顶栏一直都在，伸手就够得到；
@@ -5321,13 +7330,38 @@
       cvToast(on ? '手指也能写（防误触已关）' : '只认笔：手指不落墨');
     }, ' hand');
 
+    /* v2.9.28：字号 / 行距 / 栏宽三条集成到【一颗】按钮里 —— 用户原话
+       「这三个按钮集成到一个里面」。放顶栏的理由跟 ✋ 一样：纸一开就盖住右栏，
+       纸头那行已经没位置，顶栏一直都在、伸手就够得到。
+       v2.9.41：行距那条删了，浮层只剩字号 / 栏宽两条滑块 + 题干选项自动最大。 */
+    var aaBtn = mk('aa', 'Aa', '排版：字号 / 栏宽 / 题干选项自动最大', function () {
+      appAaToggle(aaBtn, 'fs');
+    });
+
+    /* v2.9.34：两颗按钮，各开一页一屏速查窗口（用户不要滚动找）。
+       放 Aa 旁边、伸缩条之前 —— 右侧那截是倒计时 + 撤销三颗，不往那边加。 */
+    var bhBtn = mk('baihua', 'percent', '百化分速查（一屏放完，不用滚）', function () {
+      appFormulaToggle('bh');
+    });
+    bhBtn.setAttribute('data-mf', 'bh');
+    var fBtn = mk('formula', 'formula', '资料分析公式（按考点切换，一屏放完）', function () {
+      appFormulaToggle('f');
+    });
+    fBtn.setAttribute('data-mf', 'f');
+
     var sp = document.createElement('span');
     sp.className = 'mab-sp';
     bar.appendChild(sp);
+    /* v2.9.31：倒计时落脚点（原生节点由 appTimerAttach 搬进来，没找到就一直是 display:none） */
+    var tm = document.createElement('div');
+    tm.id = APP_TIMER_ID;
+    tm.className = 'mab-timer';
+    bar.appendChild(tm);
     mk('undo', 'undo', '撤销', appUndo);
     mk('redo', 'redo', '反撤', appRedo);
     mk('clear', 'trash', '清空', appClear);
     document.body.appendChild(bar);
+    try { appTimerAttach(); } catch (e) {}
     return bar;
   }
 
@@ -5352,12 +7386,13 @@
     group.setAttribute(APP_ATTR, '1');
     var saved = appLoad(key);
     appCur = { group: group, key: key, acts: saved.acts, at: saved.at, mode: 'pen', stroke: null,
-               sides: {}, savedStyle: [], manualCol: appColsManual(), colW: null,
+               sides: {}, savedStyle: [], colW: null,
                /* v2.9.17：每题一张草稿纸（sheets[题号] = {acts, at}），纸默认收起 */
                sheets: saved.sheets || {}, sheetSub: null, sheetOpen: false,
                sheetAlpha: appSheetAlphaSaved(), sheetSize: appSheetSizeSaved(),
-               sheetRect: null };
+               sheetRect: null, optcMemo: {} };
     appInkBox = null;      // 换组了，上一组的「刚写完那笔」不能继续吞 click
+    appCur.fitWindow = Date.now();   // v2.9.25：一屏缩放的重算窗口从进场起算（防振荡）
     // 记下要改行内样式的元素原貌（退出时原样还回去）
     // v2.9.3 起列宽也走行内 !important，右栏必须一起存，否则退出后宽度会留在页面上
     [group, group.querySelector('.nz-resizable.left'), group.querySelector('.left-section'),
@@ -5384,8 +7419,37 @@
     appBar();
     appSheetBuild();       // v2.9.17：草稿纸的 DOM 先建好（收起态），点题号才显示
     appQBarSync();         // 五颗题号按钮先标出当前这一题
-    appFitCols();          // v2.9.3：列宽按屏幕+内容现算
-    appWatchSplitter();
+    /* v2.9.25 修「选项区自己排好几下版」：进场先把右栏藏起来，
+       等列数（内部要试排 4/3/2/1 列）和一屏缩放都算完、且布局连续两帧不再变，
+       才放出来。否则试排和缩放的中间态会赶在首帧上屏，看着就是跳好几下。
+       visibility:hidden 仍然参与布局，量出来的宽高都是真的。 */
+    var revealHost = appCur.sides.right && appCur.sides.right.host;
+    if (revealHost) revealHost.style.setProperty('visibility', 'hidden', 'important');
+    appApplyCols();
+    /* v2.9.43：分隔条不再生成，栏宽由 Aa 浮层的「栏宽」滑块调。 */
+    appSizeAll();
+    /* 列数的「最优」必须在缩放后的坐标系里判断（缩放是在加宽包裹层的同时把字整体缩小，
+       同一道题在两种坐标系里折行结果不同；scale 大的那版字更大，才是真最优）。
+       所以先缩放 → 在缩放后的比例里定列数 → 再缩放 → 复核一次；有限两轮，
+       scale 提前稳定就收。全程同步执行 + 右栏还藏着，用户看不到任何中间态。 */
+    appFitMat();
+    for (var rnd = 0, prevS = appFitScaleOf(appCur.sides.right); rnd < 2; rnd++) {
+      appOptColsFix(true);
+      appFitMat();
+      var nowS = appFitScaleOf(appCur.sides.right);
+      if (Math.abs(nowS - prevS) < 0.03) break;
+      prevS = nowS;
+    }
+    /* v2.9.40：材料自动最大已删除；顺手把旧版可能留在材料上的标记清干净，
+       保证材料就是粉笔原样 16px。右栏求解仍在列数 / 缩放定稿之后。 */
+    try { appMatRestore(); } catch (e5) {}
+    try { appRightSolve(); } catch (e6) {}
+    /* 自动档字号定稿后再量一次题号宽度 → text-indent 跟着最终字号走；
+       题干首行缩进会改变内容高，最后重算一次一屏缩放。 */
+    try { appTitleInline(); appFitMat(); } catch (eT) {}
+    appRedraw();
+    appSyncThumbs();
+    appReveal(revealHost); // 下一帧确认定稿后再显示
     appBarSync();
     /* v2.9.15：落笔 / 阻挡挂在 document 捕获层（不是滚动容器）——
        页面上任何透明覆盖层都拦不住我们。同函数同 capture 重复 add 不会叠加。 */
@@ -5398,7 +7462,16 @@
       if (!document.getElementById(APP_BAR_ID)) {
         try { appBar(); appQBarSync(); appBarSync(); } catch (e) {}
       }
-      appInlineFix();          // Angular 重渲染会重写行内样式，定期按住
+      /* v2.9.31：重渲染可能把倒计时节点从顶栏冲掉（或者换了个新节点）→ 补搬一次 */
+      try { appTimerAttach(); } catch (e) {}
+      /* v2.9.43：分隔条已停用，看门狗不再把旧节点补回来。 */
+      /* v2.9.30：正在拖滑块 / 拖交界线时不插手。
+         这三件事（按住行内样式、量画布、发现栏宽对不上就重铺）都会重排，
+         叠在用户的一次拖动上就是他说的「抽搐」。松手后下一拍立刻恢复。 */
+      if (!appDragging()) {
+        appInlineFix();          // Angular 重渲染会重写行内样式，定期按住
+        appOptColsFix();         // v2.9.25：选项列数自适应同样要按住（重渲染会换节点）
+      }
       // 切题/重渲染可能把画布从 DOM 里摘掉：挂回去再按新尺寸重画
       ['left', 'right'].forEach(function (side) {
         var s2 = appCur && appCur.sides[side];
@@ -5408,9 +7481,16 @@
       });
       // 页面可能把列宽写回它自己的值（实测 800ms 内会动行内 style）→ 发现被改回就重算
       var Lnow = appCur.group.querySelector('.nz-resizable.left');
-      if (appCur.colW && Lnow && Math.abs(Lnow.getBoundingClientRect().width - appCur.colW.l) > 6) {
-        if (!appCur.manualCol) appCur.colW = null;
+      if (!appDragging() && appCur.colW && Lnow &&
+          Math.abs(Lnow.getBoundingClientRect().width - appCur.colW.l) > 6) {
+        appCur.colW = null;
         appApplyCols();
+      }
+      /* v2.9.25：切题/重渲染可能把缩放包裹层整个冲掉 → 发现没了就补上（两栏都看） */
+      if (!appCur.stroke && appCur.sides &&
+          ((fitMatOn() && appCur.sides.left && !appFitMatWrapOf(appCur.sides.left)) ||
+           (fitRightOn() && appCur.sides.right && !appFitMatWrapOf(appCur.sides.right)))) {
+        try { appFitMat(); } catch (e) {}
       }
       /* v2.9.10：笔在写的时候不许量尺寸、不许重绘 ——
          appSizeSide 会把画布高度临时压成 0 去量内容高，这一下会让栏位 scrollHeight 抖动、
@@ -5421,7 +7501,7 @@
          否则孤儿笔会一直挂着（看门狗也会跟着不重绘）。 */
       if (appCur.stroke && appCur.stroke.orphan &&
           Date.now() - (appCur.stroke.ts || 0) > 1500) appEndStroke(true);
-      if (!appCur.stroke) { appSizeAll(); appRedraw(); }
+      if (!appCur.stroke && !appDragging()) { appSizeAll(); appRedraw(); }
       appSyncThumbs();
     }, 700);
     window.addEventListener('resize', appOnResize);
@@ -5434,7 +7514,13 @@
 
   function appOnResize() {
     if (!appCur) return;
+    appCur.fitWindow = Date.now();   // v2.9.25：转窗重开 3.5s 重算窗口（防振荡）
+    /* v2.9.25：栏宽变了 → 先拆掉一屏缩放的包裹层，回到「没缩放」的干净环境重算列数，
+       否则会在加宽坐标系里量出另一个答案；算完再重新缩放一次 */
+    try { appFitMatUnwrap(appCur.sides && appCur.sides.right); } catch (e) {}
     appFitCols();          // 转屏/改窗口 → 重新算一遍列宽
+    try { appOptColsFix(); appFitMat(); } catch (e) {}
+    appMatSolveDeb();      // v2.9.40：栏宽 / 窗口变了 → 题干选项重新解一次（材料不动）
     /* v2.9.17：草稿纸也要重新夹回视口（转屏后可能有一半在屏幕外） */
     if (appCur.sheetOpen) appSheetApplySize(appCur.sheetSize);
   }
@@ -5442,6 +7528,9 @@
   function appClose(silent) {
     if (!appCur) return;
     var cur = appCur;
+    /* v2.9.25：退出分栏把两栏的缩放包裹层都拆掉，页面 DOM 还原成原样 */
+    try { appFitMatUnwrap(cur.sides && cur.sides.left); } catch (e) {}
+    try { appFitMatUnwrap(cur.sides && cur.sides.right); } catch (e) {}
     /* v2.9.12：退出前先记住「正在看的那一道子题」。
        分栏里五道子题是顺排的（共用一张纸），退出后粉笔恢复成一次只显示一道、
        tab 索引还停在第一个 → 用户被送回第一题。记住它，退出后再复位回去。 */
@@ -5474,8 +7563,16 @@
     if (cur.stroke && cur.stroke.guard && cur.stroke.guardEl) {
       try { cur.stroke.guardEl.removeEventListener('scroll', cur.stroke.guard, { passive: true }); } catch (e) {}
     }
+    /* v2.9.31：倒计时必须先还回页面原位 —— 顺序反了，bar.remove() 会把那颗原生节点一起带走 */
+    try { appTimerDetach(); } catch (e) {}
     var bar = document.getElementById(APP_BAR_ID);
     if (bar) bar.remove();
+    var sp = document.getElementById(APP_SPLIT_ID);
+    if (sp) sp.remove();              // v2.9.28：分隔条跟着退场，比例留在 localStorage
+    appAaClose();                     // v2.9.26：字号浮层跟着退场
+    /* v2.9.33：公式大全是纯查阅浮窗，退出分栏连节点一起摘掉，不留残影 */
+    var mf = document.getElementById(APP_FORMULA_ID);
+    if (mf) mf.remove();
     appSheetTeardown();               // v2.9.17：草稿纸跟着退场（笔画已随组存盘）
     ['left', 'right'].forEach(function (side) {
       var s = cur.sides[side];
@@ -5484,6 +7581,7 @@
       if (s.thumb) s.thumb.remove();
       if (s.detachTouch) { try { s.detachTouch(); } catch (e) {} s.detachTouch = null; }
     });
+    appOptColsRestore(cur.group);     // v2.9.25：选项两列的行内样式原样还回
     (cur.savedStyle || []).forEach(function (rec) {
       try {
         if (rec.css === null) rec.el.removeAttribute('style');
@@ -5491,6 +7589,8 @@
       } catch (e) {}
     });
     try { cur.group.removeAttribute(APP_ATTR); } catch (e) {}
+    appTxClear(cur.group);   // v2.9.27：把逐元素写上去的字号 / 行距原样还回去
+    appTitleRestore(cur.group);  // v2.9.40：题号行 / 题干首行缩进原样还回去
     /* v2.9.12：退出后把「刚才在看的那一道」复位回去（否则会被送回第一题）。
        两条路：展平模式下是页面滚动 → 居中到那道；原生 tab 模式下是切 tab + 容器滚动。
        Angular 恢复布局要一两拍，所以补两次。 */
@@ -5770,7 +7870,7 @@
       else localStorage.removeItem(CV_LS_PREFIX + 'fitw-' + cv.key);
     } catch (e) {}
     syncCanvasSize(cv);
-    if (cv.zoomBtn) cv.zoomBtn.textContent = (r.s && r.s < 1) || r.w ? '100%' : '适应';
+    /* v2.9.25：按钮已改「分栏」入口，不再随缩放状态变文字 */
   }
 
   // 还原：缩放 100% + 栏宽还原 +（展平由适应触发时）收回展平
@@ -5863,7 +7963,7 @@
   // 文字不能错），未缩放态恒「适应」——这就是用户要的默认态。
   // 顺手清掉旧版本遗留的持久化键（存在才删，避免无谓写）。
   function cvFitRestoreState(cv) {
-    if (cv.zoomBtn) cv.zoomBtn.textContent = cvFitActive(cv) ? '100%' : '适应';
+    /* v2.9.25：按钮已改「分栏」入口，不再随缩放状态变文字 */
     try {
       if (localStorage.getItem(CV_LS_PREFIX + 'zoom-' + cv.key) !== null) localStorage.removeItem(CV_LS_PREFIX + 'zoom-' + cv.key);
       if (localStorage.getItem(CV_LS_PREFIX + 'fitw-' + cv.key) !== null) localStorage.removeItem(CV_LS_PREFIX + 'fitw-' + cv.key);
@@ -5911,7 +8011,7 @@
     // 材料画布（toolsPos=top）：工具条是顶部通栏 band，宿主打标记让 CSS 把
     // .material-body 内容压到 band 下方——按钮不再悬浮遮住材料文字（v2.7.1）；
     // v2.7.8 起 band 里只有「适应」按钮，不再有画布
-    if (isMat && host.classList) host.classList.add('marvis-mat-host');
+    if (isMat && host.classList && !host.classList.contains('marvis-mat-host')) host.classList.add('marvis-mat-host');
     var existing = host.__marvisCv;
     // 不仅要属性/引用对得上，还要画布与工具仍在文档中：Angular 局部重渲染可能只销毁
     // 子节点（canvas/tools 没了但宿主属性还在），此时必须自愈重建，否则用户看不到画布。
@@ -6013,30 +8113,26 @@
       });
     }
 
-    // 材料（toolsPos=top）挂「适应」：一键智能适应（缩放/收窄栏宽），再点还原。
-    // v2.7.8 起这是材料工具条的唯二内容（另一个是容器本身）——材料区再无草稿功能
+    // 材料（toolsPos=top）挂「适应」：v2.9.25（用户定稿）改成「分栏」入口——
+    // 分栏模式里有更完整的材料一屏/选项一屏，老的智能缩放适应用不上了。
+    // 点击 = 该组进/出分栏（同题旁笔图标的 appToggle 语义）。
     var zoomBtn = null;
     if (toolsPos === 'top') {
       zoomBtn = document.createElement('button');
       zoomBtn.type = 'button';
       zoomBtn.className = 'marvis-cvbtn';
-      zoomBtn.textContent = '适应';
-      zoomBtn.title = '材料智能适应：整块材料一屏完整显示——优先缩放，不够时自动收窄材料栏（图表随栏变矮）；再点一次还原 100%';
+      zoomBtn.textContent = '打开资料分析草稿';
+      zoomBtn.title = '打开资料分析草稿：左右分栏 + 材料/选项各自一屏';
       zoomBtn.addEventListener('click', function (ev) {
         ev.preventDefault();
         ev.stopPropagation();
-        if (cvFitActive(cv)) {
-          cvFitRestore(cv);
-          cvToast('材料已还原 100%');
-        } else {
-          var r = cvSmartFit(cv);
-          if (!r) return; // 量不出尺寸（布局未就绪），不动
-          if (r.msg) cvToast(r.msg);
-        }
+        // v2.9.25 修复：cv 是普通对象没有 closest，按钮永远弹「结构不支持」——
+        // 要从宿主元素（材料容器）往上找组
+        var group = cv && cv.host && cv.host.closest ? cv.host.closest('.ti') : null;
+        if (group && isGroupTi(group)) { appToggle(group); return; }
+        cvToast('这题的结构不支持分栏草稿');
       });
       cv.zoomBtn = zoomBtn;
-      // v2.7.5：默认就是「适应」——不恢复上次的缩放/收窄（用户要求打开即原始 100%）
-      cvFitRestoreState(cv);
     }
 
     if (tools && toggle) tools.appendChild(toggle);
@@ -6193,6 +8289,31 @@
   var MO_ATTRS = ['checked', 'class', 'aria-checked', 'aria-selected', 'aria-pressed'];
   var pending = false;
   var mo = new MutationObserver(function (records) {
+    /* v2.9.29：**同值重写不算变化**。实测这个内核里 classList.add(已有类) /
+       setAttribute(同值) / className=同值 都会照样派发 mutation 记录；
+       而脚本自己的「幂等重断言」（placeBrushPanel 每次扫描 add('mbp-inline')、
+       appSyncThumb 每次 add('on')、ensureOverlayCanvas 每次 add('marvis-mat-host')）
+       正是这么写的 → 观察器又回调 → 再跑一遍 processTi → 再重写……
+       实测静置（不碰任何东西）就是 900 次/秒 DOM 变更 + 7 万次内联样式写入，
+       左栏一直在重排，用户拖滑块时看到的就是「材料区抽搐」。
+       这里先把「旧值 === 当前值」的记录整条丢掉：真变化一条不少，空转全部消失。 */
+    var real = [];
+    for (var ri = 0; ri < records.length; ri++) {
+      var rm = records[ri];
+      if (rm.type === 'attributes') {
+        var cur = null;
+        try { cur = rm.target.getAttribute(rm.attributeName); } catch (e0) {}
+        if ((rm.oldValue || '') === (cur || '')) continue;   // 值没变，等于没发生
+        /* 自家 UI（顶栏 / 排版浮层 / 草稿滚动条 / 画笔面板）的变化与题目无关 */
+        try {
+          if (rm.target.closest && rm.target.closest(
+              '#' + APP_BAR_ID + ', #' + APP_AA_ID + ', .marvis-app-thumb, #marvis-brush-panel')) continue;
+        } catch (e1) {}
+      }
+      real.push(rm);
+    }
+    if (!real.length) return;
+    records = real;
     if (pending) return;
     pending = true;
     requestAnimationFrame(function () {
@@ -6224,6 +8345,7 @@
       childList: true,
       subtree: true,
       attributes: true,
+      attributeOldValue: true,      // v2.9.29：没有旧值就分不出「真变」和「同值重写」
       attributeFilter: MO_ATTRS
     });
   }

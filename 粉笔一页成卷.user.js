@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         粉笔一页成卷
 // @namespace    marvis/fenbi-inpage-typeset
-// @version      1.1.4
+// @version      1.1.5
 // @description  在粉笔网页版题目页就地套用《粉笔试卷排版打印》的版式：宋体（默认字号 24px / 行高 1.6，均在面板上用 −/＋ 加减调整）（本机宋体优先，安卓平板/iPad 缺宋体时自动联网补思源宋体，可关）、题干首行缩进 2em 与段间距 0.5em、题号悬挂缩进（固定 2em）、选项 flex 排布（列数默认自动，可切 1/2/4 列；列距 18px、行距 0.5em、上距 0.3em）、图片限幅（题干 max-width 100%、选项 140x100）、表格规则、题间距（默认 18px，面板用 −/＋ 调整）。只调样式：不打印、不生成 A4、不浮层、不改动题目文本与原有交互。
 // @author       Marvis File Agent
 // @match        *://spa.fenbi.com/*
@@ -569,11 +569,18 @@
         '  color:#0f172a;background:rgba(255,255,255,.97);border:1px solid #d5dae3;',
         '  border-radius:10px;box-shadow:0 6px 20px rgba(15,23,42,.18);overflow:hidden;',
         '}',
-        '#' + PANEL_ID + ' .fp-ts-head{display:flex;align-items:center;justify-content:space-between;',
-        '  padding:8px 10px;background:#f1f4f9;border-bottom:1px solid #e2e6ee;',
-        '  font-weight:600;color:#2563eb}',
-        '#' + PANEL_ID + ' .fp-ts-fold{width:22px;height:22px;padding:0;line-height:1;',
-        '  border:1px solid #cbd5e1;border-radius:6px;background:#fff;cursor:pointer;color:#475569;font-size:14px}',
+        /* v1.1.5：半透明待机——平时 30% 透明度，鼠标悬停恢复 */
+        '#' + PANEL_ID + '{opacity:.3;transition:opacity .25s ease}',
+        '#' + PANEL_ID + ':hover{opacity:1}',
+        /* v1.1.5：面板头缩到与「自动全开草稿」胶囊同规格（10.5px 字号） */
+        '#' + PANEL_ID + ' .fp-ts-head{display:flex;align-items:center;justify-content:space-between;gap:6px;',
+        '  padding:4px 8px;background:#f1f4f9;border-bottom:1px solid #e2e6ee;',
+        '  font-size:10.5px;font-weight:700;color:#2563eb}',
+        /* v1.1.5：折叠态宽度改为按内容自适应（position:fixed 的 width:auto 即收缩适配），
+           去掉版本号后面的整段留白；展开后仍回 250px */
+        '#' + PANEL_ID + '.fp-ts-collapsed{width:auto}',
+        '#' + PANEL_ID + ' .fp-ts-fold{width:18px;height:18px;padding:0;line-height:1;',
+        '  border:1px solid #cbd5e1;border-radius:5px;background:#fff;cursor:pointer;color:#475569;font-size:12px}',
         '#' + PANEL_ID + ' .fp-ts-body{padding:8px 10px 10px}',
         '#' + PANEL_ID + '.fp-ts-collapsed .fp-ts-body{display:none}',
         '#' + PANEL_ID + ' .fp-ts-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 7px}',
@@ -1608,7 +1615,9 @@
         });
         var head = el('div', { 'class': 'fp-ts-head' }, [
             el('span', { text: '粉笔一页成卷 ' }, [
-                el('span', { style: 'color:#94a3b8;font-style:italic', text: '粉笔脚本君出品' })
+                el('span', { style: 'color:#94a3b8;font-weight:500', text: '粉笔脚本君出品' }),
+                /* v1.1.5：标题条补版本号，颜色随启停状态变化 */
+                el('span', { 'class': 'fp-ts-ver', style: 'color:#3B6D11;font-weight:600;margin-left:4px', text: 'v1.1.5' })
             ]),
             fold
         ]);
@@ -1696,6 +1705,8 @@
         ctrl.cols.value = cfg.cols;
         ['fontSize', 'lineHeight', 'qSpacing'].forEach(function (k) { ctrl[k].setDisabled(!cfg.enabled); });
         ctrl.cols.disabled = !cfg.enabled;
+        var verEl = panel.querySelector('.fp-ts-ver');
+        if (verEl) verEl.style.color = cfg.enabled ? '#3B6D11' : '#9AA0A8';
         refreshFontStatus();
     }
 
