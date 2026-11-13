@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         粉笔自由折叠
 // @namespace    http://tampermonkey.net/
-// @version      3.0.3
-// @description  右上角常驻「显示设置」面板：三组切换按钮，各自显示当前状态（已开/已关）——题目（一键开合所有题干/选项）、答案（一键显隐「正确答案/你的答案/全站正确率/易错项/选项对错颜色」与「答题用时」）、解析（一键开合所有解析）；材料分栏题组已展平：材料区整体移除，每 5 题一组的分栏题拆成一道道独立单题（与前面的普通题同宽同距）；点击题号折叠/展开题干并把该题顶到页首；点击「解析」折叠/展开解析；悬浮题号显示正确答案与全站正确率；题号按正确率着色；面板第四组「错题」开关：开启后只保留做错的题（做对与未作答的题一并隐藏）；↑/↓ 切题，Enter/右键 开关解析；卷名可点击跳 B 站搜索；隐藏考点/来源/笔记/箭头/题型标识等无关项
+// @version      3.1.1
+// @description  右上角常驻「显示设置」面板：一枚两行小字的椭圆按钮兼顾品牌与展开/收起（脚本名、出品/版本、展开/收起，无独立加号），点开后是各开关——题目（题干/选项）、答案（正确答案/你的答案/全站正确率/易错项/选项对错颜色/答题用时）、解析文字、解析视频（连标题栏与会员广告整块折叠）、仅错题、正确率，外加总控「当前已全部显示 / 当前已全部折叠」与重置；鼠标离开面板 5 秒整个板块自动淡化，移回即恢复；材料区保持页面默认显示；点击题号折叠/展开题干并把该题顶到页首；点击「解析」折叠/展开解析；悬浮题号显示正确答案与全站正确率；题号按正确率着色；仅错题开启后做对的题连同资料分析组里的题号按钮一起隐藏；↑/↓ 切题，Enter/右键 开关解析；卷名可点击跳 B 站搜索；隐藏考点/来源/笔记/箭头/题型标识等无关项
 // @author       You
 // @match        *://spa.fenbi.com/*
 // @match        *://www.fenbi.com/*
@@ -26,7 +26,11 @@
     const BTN_ID = 'fenbi-fold-toggle-btn';
     const PANEL_ID = 'fh-panel';          // 右上角「显示设置」面板
     const PANEL_POS_KEY = 'fh_panel_pos_v1';  // 面板拖拽位置记忆的 localStorage 键
-    var RES_MODE = null;                  // 解析期望态：'open' / 'close' / null（不干预）
+    var SCRIPT_VERSION = '3.1.1';          // 椭圆按钮上显示的版本；改版本时同步 @version
+    const IDLE_DELAY = 5000;              // 鼠标离开面板多久后淡化
+    const IDLE_OPACITY = 0.25;            // 淡化后的整块不透明度
+    var RES_MODE = null;                  // 「解析文字」期望态：'open' / 'close' / null（不干预）
+    var VIDEO_MODE = 'open';              // 「解析视频」期望态：'open' / 'close'（默认显示，纳入总控）
     var BODY_MODE = null;                 // 题目（题干+选项）期望态：'open' / 'close' / null（不干预）
     var HIDE_MODE = null;                 // 答案类信息（含答题用时）期望态：'open' / 'close' / null（不干预）
 
@@ -250,27 +254,96 @@
         paintResBox(item, open);
     }
 
+    /* ---------- 解析拆分：文字 / 视频各管一块 ---------- */
+    // 真页面结构（2026-11-13 解析页实测）：每道题
+    //   app-result-common > div.result-common-container > section.result-common-section × 5
+    //   section[id^="section-video-"]    → 标题「解析视频」+ app-solution-video（播放器 + 会员广告）
+    //   section[id^="section-solution-"] → 标题「解析」+ div.content（解析文字）
+    // 两个开关各隐藏自己那一整块 section：视频那块连标题栏与会员广告一起收，不留空白条。
+    // 只认「标题文字 + id 前缀」，不认 Angular 随机类名，站点改版不会误伤。
+
+    function solutionSections(item, kind) {
+        var out = [], secs = item.querySelectorAll('section.result-common-section');
+        for (var i = 0; i < secs.length; i++) {
+            var s = secs[i], id = s.id || '';
+            var title = s.querySelector('.solution-title');
+            var txt = title ? (title.textContent || '').replace(/\s+/g, '') : '';
+            var isVideo = id.indexOf('section-video-') === 0 || txt === '解析视频' ||
+                          !!s.querySelector('app-solution-video');
+            var isText = (id.indexOf('section-solution-') === 0 || txt === '解析') && !isVideo;
+            if (kind === 'video' ? isVideo : isText) out.push(s);
+        }
+        return out;
+    }
+
+    // 只改自己动过的 section：还原时不抹站点自己的 inline display
+    function setSolutionVisible(sec, show) {
+        if (!sec) return;
+        if (show) {
+            if (sec.__fhPartHidden) {
+                sec.style.display = sec.__fhPartOrigDisplay || '';
+                sec.__fhPartHidden = false;
+            }
+            return;
+        }
+        if (!sec.__fhPartHidden) {
+            sec.__fhPartOrigDisplay = sec.style.display || '';
+            sec.__fhPartHidden = true;
+        }
+        sec.style.display = 'none';
+    }
+
+    // 幂等重贴两个分区。syncNative=true 用于用户点开关（必要时点一次原生 toggle-btn，
+    // 把 Angular 的折叠状态翻过去）；轮询重贴只写内联样式，避免每 3 秒触发动画。
+    // 返回 false = 这题不是解析页的 section 结构，交给旧逻辑整块处理。
+    function paintSolutionParts(item, textOpen, videoOpen, syncNative) {
+        var texts = solutionSections(item, 'text');
+        var vids = solutionSections(item, 'video');
+        if (!texts.length && !vids.length) return false;
+
+        textOpen = !!textOpen;
+        videoOpen = !!videoOpen;
+        var anyOpen = textOpen || videoOpen;
+        // 任一开就必须解开粉笔的 height:0 裁剪；两者都关才把整块容器压回去
+        if (syncNative) setResBox(item, anyOpen);
+        else paintResBox(item, anyOpen);
+
+        // 旧逻辑可能把整个 app-result-common 设成 display:none，先解回来
+        var els = resEls(item);
+        for (var i = 0; i < els.length; i++) {
+            if (els[i].style.display === 'none') els[i].style.display = '';
+        }
+        for (i = 0; i < texts.length; i++) setSolutionVisible(texts[i], textOpen);
+        for (i = 0; i < vids.length; i++) setSolutionVisible(vids[i], videoOpen);
+        item.__fenbiVideoOpen = videoOpen;
+        return true;
+    }
+
     function setRes(item, open) {
         open = !!open;
         item.__fenbiResOpen = open;
+        // 单题手动开合（题号旁「解析」/ Enter / 右键）沿用旧语义：文字与视频一起开合；
+        // 面板批量动作时文字听 RES_MODE、视频听 VIDEO_MODE，互不带动。
+        var videoOpen = item.__fenbiResManual ? open : (VIDEO_MODE === 'open');
 
         // 解析区可能是懒创建的：展开时容器还不存在、或内容是空的，
         // 先替用户点一下原生的解析开关，把它唤出来
-        if (open) ensureResRendered(item);
+        if (open || videoOpen) ensureResRendered(item);
 
-        // 展开：所有解析容器一起显示；收起：一起隐藏
-        var els = resEls(item);
-        for (var i = 0; i < els.length; i++) {
-            els[i].style.display = open ? '' : 'none';
+        if (!paintSolutionParts(item, open, videoOpen, true)) {
+            // 旧页面没有 section 分区（如做题页）：整块解析一起开合，视频开关无对象
+            var els = resEls(item);
+            for (var i = 0; i < els.length; i++) {
+                els[i].style.display = open ? '' : 'none';
+            }
+            // 关键：解开/压回粉笔自己的折叠容器高度，否则正文仍被裁成空白
+            setResBox(item, open);
         }
-
-        // 关键：解开/压回粉笔自己的折叠容器高度，否则正文仍被裁成空白
-        setResBox(item, open);
 
         if (item.__fenbiResBtn) {
             item.__fenbiResBtn.textContent = open ? '解析 ▾' : '解析 ▸';
         }
-        if (open) hideExtras(item);
+        if (open || videoOpen) hideExtras(item);
     }
 
     /* ---------- 隐藏无关项：考点 / 来源 / 笔记 / 题型标识 ---------- */
@@ -821,6 +894,245 @@
         if (hit) markResManual(item);
     }, true);
 
+    /* ---------- 组内题号导航条：点「112题」就把内容切到 112 题 ---------- */
+
+    // 材料题组顶部那排「111题 112题…」是粉笔自带的 tab（.questions-anchors）。
+    // 站点实测：点击只切 active 高亮类，不滚动 .questions-container，
+    // 于是出现「高亮在 112、内容还是 111」。恢复分栏后这条导航重新显示，
+    // 这里在捕获阶段补上切题；不拦原生事件，让高亮照常更新、与内容保持一致。
+    // 定位只认「短题号文本」，不依赖 a/div/span 标签或 class —— 前端改版不会失效。
+
+    var TAB_RE = /^(\d{1,3})题?$/;
+
+    function tabNumberOf(node) {
+        if (!node || node.nodeType !== 1) return 0;
+        var t = (node.textContent || '').replace(/\s+/g, '');
+        var m = t.match(TAB_RE);
+        return m ? parseInt(m[1], 10) : 0;
+    }
+
+    // 只认「自身文字就是题号」的叶子元素：题干里的年份/百分比不会被误认
+    function shortTabLeaves(root, limit) {
+        var out = [], cap = limit || 1e9;
+        if (!root || !root.querySelectorAll) return out;
+        var all = root.querySelectorAll('*');
+        for (var i = 0; i < all.length; i++) {
+            var el = all[i];
+            if (el.children && el.children.length) continue;
+            var t = (el.textContent || '').replace(/\s+/g, '');
+            if (t.length <= 6 && TAB_RE.test(t)) {
+                out.push(el);
+                if (out.length >= cap) break;   // 判「是不是一排」时找到 2 个就够，别全页扫描
+            }
+        }
+        return out;
+    }
+
+    // 从点击目标往上找被点中的那个「112题」标签（最多 4 层）
+    function findTabNode(node) {
+        var el = node, guard = 0;
+        while (el && el.nodeType === 1 && guard++ < 4) {
+            // 题内题号（.title-index）若不带点，文本同样是纯数字，必须排除，
+            // 否则点题号折叠题干时会被误当成导航 tab 多滚一次
+            if (el.classList && el.classList.contains('title-index')) return null;
+            if (tabNumberOf(el)) return el;
+            el = el.parentElement;
+        }
+        return null;
+    }
+
+    // 再往上找整排导航容器：第一个含 ≥2 个短题号标签的层
+    function findTabBar(tab) {
+        var el = tab ? tab.parentElement : null, guard = 0;
+        while (el && el.nodeType === 1 && guard++ < 6) {
+            if (shortTabLeaves(el, 2).length >= 2) return el;
+            el = el.parentElement;
+        }
+        return null;
+    }
+
+    // 按题号文本找题（.title-index 可能是「112.」「112」「112、」）
+    function itemByNumber(num) {
+        var items = getItems();
+        for (var i = 0; i < items.length; i++) {
+            var no = items[i].querySelector('.title-index');
+            if (!no) continue;
+            var t = (no.textContent || '').replace(/\s+/g, '');
+            var m = t.match(/^(\d{1,3})/);
+            if (m && parseInt(m[1], 10) === num) return items[i];
+        }
+        return null;
+    }
+
+    // 兜底：#nav0..4 或这一排里的下标 → 同组 .questions-container 里第 N 题
+    function itemByTabIndex(bar, tab) {
+        var idx = -1;
+        var m = String((tab && tab.id) || '').match(/nav(\d+)$/i);
+        if (m) idx = parseInt(m[1], 10);
+        if (idx < 0) {
+            var leaves = shortTabLeaves(bar, 0);
+            for (var i = 0; i < leaves.length; i++) {
+                if (leaves[i] === tab || (leaves[i].contains && leaves[i].contains(tab))) { idx = i; break; }
+            }
+        }
+        if (idx < 0) return null;
+        var scope = bar.parentElement || bar;
+        var list = scope.querySelectorAll('app-ti.question-multiple');
+        if (!list.length) list = scope.querySelectorAll('app-ti');
+        return list[idx] || null;
+    }
+
+    // 组内切题：逐层把内部滚动容器对齐到该题顶部（材料留在原位），
+    // 只有整道题不在视口时才顺带轻推整页。不隐藏其它题——3 秒轮询的
+    // syncWrongState 会重贴 display 把隐藏态冲掉，且键盘 ↑/↓ 会跳过组内题。
+    function bringGroupItemIntoView(item) {
+        if (!item) return;
+        var sp = getScrollParent(item), guard = 0, aligned = false;
+        while (sp && guard++ < 10) {
+            var r = item.getBoundingClientRect(), sr = sp.getBoundingClientRect();
+            sp.scrollTop = Math.max(0, sp.scrollTop + (r.top - sr.top) - 4);
+            aligned = true;
+            sp = getScrollParent(sp.parentElement);
+        }
+        var r2 = item.getBoundingClientRect(), off = getTopOffset();
+        var vh = window.innerHeight || document.documentElement.clientHeight || 800;
+        if (!aligned || r2.top < off || r2.top > vh - 80) {
+            window.scrollTo({ top: Math.max(0, r2.top + window.pageYOffset - off), behavior: 'auto' });
+        }
+    }
+
+    document.addEventListener('click', function (e) {
+        var t = e.target;
+        if (!t) return;
+        var tab = findTabNode(t);
+        if (!tab) return;                       // 不是「N题」这类短标签，一律不干预
+        var bar = findTabBar(tab);
+        if (!bar) return;                       // 不是整排导航（单个数字不接管）
+        var num = tabNumberOf(tab);
+        var item = num ? itemByNumber(num) : null;
+        if (!item) item = itemByTabIndex(bar, tab);
+        if (!item || !item.getClientRects || !item.getClientRects().length) return;
+
+        // 不 preventDefault / stopPropagation：让站点照常把 active 高亮切到这一题
+        processItem(item);
+        syncBodyState(item);
+        syncResState(item);
+        bringGroupItemIntoView(item);
+        // Angular 可能在数百毫秒内重渲染或把滚动写回去：重新按题号找一次再对齐（幂等）
+        setTimeout(function () {
+            var again = num ? itemByNumber(num) : item;
+            if (again && again.isConnected) bringGroupItemIntoView(again);
+            applyTabFilter();      // Angular 重绘导航条后把隐藏态补回去
+        }, 200);
+    }, true);
+
+    /* ---------- 仅错题：组内「做对题」的题号按钮一并隐藏 ---------- */
+
+    // 真页面结构（2026-11-13 实测）：.questions-anchors > app-expand > nav >
+    // .tabs-content > a.tab#navN（「111题」），另有 .choose-tabs-container >
+    // a.choose-tab（下拉「请选择题」里的同一批题号）。两处都要跟着题目一起隐藏，
+    // 否则只剩一排点进去什么都没有的空按钮。
+    // 判据与 setWrong 完全一致（isWrong(item) === false 才隐藏），保证
+    // 「题在按钮在、题没按钮没」；统计未就绪 / 做错 / 关闭仅错题时一律保留。
+
+    var _fhHiddenTabs = [];
+
+    // 从短题号叶子往上取真正的按钮单元（a.tab / a.choose-tab / 包了一层 span 的 a）。
+    // 整排容器的文本是多个题号拼接，tabNumberOf 返回 0，循环自然停在按钮上。
+    function tabUnitOf(leaf) {
+        var el = leaf, best = null, guard = 0;
+        while (el && el.nodeType === 1 && guard++ < 4) {
+            if (el.classList && el.classList.contains('title-index')) return null;
+            if (!tabNumberOf(el)) break;
+            best = el;
+            if (shortTabLeaves(el, 2).length >= 2) break;
+            el = el.parentElement;
+        }
+        return best;
+    }
+
+    // 优先用站点类名；类名漂移时退化为按「短题号叶子的公共父」聚合
+    function groupTabBars() {
+        var out = [], i, j;
+        var known = document.querySelectorAll('.questions-anchors');
+        for (i = 0; i < known.length; i++) {
+            if (shortTabLeaves(known[i], 2).length >= 2) out.push(known[i]);
+        }
+        if (out.length) return out;
+        var leaves = shortTabLeaves(document.body, 0), groups = [];
+        for (i = 0; i < leaves.length; i++) {
+            // 兜底时只认带「题」字的短文本，别把题干里的纯数字当成按钮
+            var t = (leaves[i].textContent || '').replace(/\s+/g, '');
+            if (t.indexOf('题') === -1) continue;
+            var unit = tabUnitOf(leaves[i]);
+            if (!unit || !unit.parentElement) continue;
+            var g = null;
+            for (j = 0; j < groups.length; j++) {
+                if (groups[j].el === unit.parentElement) { g = groups[j]; break; }
+            }
+            if (!g) { g = { el: unit.parentElement, units: [] }; groups.push(g); }
+            if (g.units.indexOf(unit) === -1) g.units.push(unit);
+        }
+        for (i = 0; i < groups.length; i++) {
+            if (groups[i].units.length >= 2) out.push(groups[i].el);
+        }
+        return out;
+    }
+
+    // 题号 → 题目，按 .title-index 文本建索引；只认能对上题号的按钮
+    function itemNoMap() {
+        var map = {}, items = getItems();
+        for (var i = 0; i < items.length; i++) {
+            var no = items[i].querySelector('.title-index');
+            if (!no) continue;
+            var m = (no.textContent || '').replace(/\s+/g, '').match(/^(\d{1,3})/);
+            if (m) map[String(parseInt(m[1], 10))] = items[i];
+        }
+        return map;
+    }
+
+    // 只改自己动过的按钮：记下原 inline display，还原时不抹站点自己的样式
+    function setTabVisible(tab, show) {
+        if (!tab) return;
+        if (show) {
+            if (tab.__fhTabHidden) {
+                tab.style.display = tab.__fhTabOrigDisplay;
+                tab.__fhTabHidden = false;
+            }
+            return;
+        }
+        if (!tab.__fhTabHidden) {
+            tab.__fhTabOrigDisplay = tab.style.display || '';
+            tab.__fhTabHidden = true;
+        }
+        tab.style.display = 'none';
+    }
+
+    // 幂等：每轮先把上一轮隐藏的全部还原，再按当前期望态重贴。
+    // 同一同步执行流内完成，不会闪烁；Angular 重建 DOM 后也能立刻补上。
+    function applyTabFilter() {
+        var k;
+        for (k = 0; k < _fhHiddenTabs.length; k++) setTabVisible(_fhHiddenTabs[k], true);
+        _fhHiddenTabs = [];
+        if (WRONG_MODE !== 'open') return;
+
+        var byNo = itemNoMap(), bars = groupTabBars(), seen = [];
+        for (var b = 0; b < bars.length; b++) {
+            var leaves = shortTabLeaves(bars[b], 0);
+            for (var i = 0; i < leaves.length; i++) {
+                var unit = tabUnitOf(leaves[i]);
+                if (!unit || seen.indexOf(unit) !== -1) continue;
+                seen.push(unit);
+                var num = tabNumberOf(unit) || tabNumberOf(leaves[i]);
+                var item = num ? byNo[String(num)] : null;
+                if (!item) continue;                    // 题号对不上，别误伤
+                if (isWrong(item) !== false) continue; // 与 setWrong 同一判据
+                setTabVisible(unit, false);
+                _fhHiddenTabs.push(unit);
+            }
+        }
+    }
+
     // 平滑滚动过程中，提示实时跟随题号位置
     window.addEventListener('scroll', placeTip, true);
 
@@ -1135,9 +1447,10 @@
 
     /* ---------- 材料分栏展平：把每 5 题一组的分栏题组拆成一道道独立单题 ---------- */
 
-    // 材料区整体移除，组内题目与前面的普通题完全一致：全宽、无分栏、无拖拽分隔条。
-    // 只改样式 / 加类名，不动原 DOM 结构；要恢复材料与分栏时把 FLATTEN_ON 改回 false
-    var FLATTEN_ON = true;
+    // 材料区回到页面默认：不隐藏左栏材料，也不再展平题组（左右分栏照常）。
+    // 只改样式 / 加类名，不动原 DOM 结构；要重新展平时把 FLATTEN_ON 改回 true。
+    // 即便改回 true，下面的 CSS 也只隐藏拖拽手柄，绝不隐藏材料。
+    var FLATTEN_ON = false;
     var FLAT_GAP = 48;             // 展平后组内相邻题的间距，对齐普通题的 48px
 
     function ensureFlatStyle() {
@@ -1148,8 +1461,10 @@
             // 分栏容器：取消 flex 与固定高度（原 70vh），否则内容撑不出容器、各组会互相压叠
             '.fenbi-flat{display:block !important;height:auto !important;min-height:0 !important;' +
             'max-height:none !important;overflow:visible !important;}' +
-            // 左栏（材料区）与拖拽手柄：整体不要了
-            '.fenbi-flat > .nz-resizable.left,.fenbi-flat .nz-resizable-handle{display:none !important;}' +
+            // 只隐藏拖拽手柄；左栏（材料区）保持显示，绝不隐藏
+            '.fenbi-flat .nz-resizable-handle{display:none !important;}' +
+            '.fenbi-flat > .nz-resizable.left{display:block !important;width:100% !important;' +
+            'height:auto !important;max-height:none !important;overflow:visible !important;}' +
             // 右栏（题目区）：吃满整宽，去掉原来的 4px 左边距与滚动限制
             '.fenbi-flat > .right{width:100% !important;max-width:none !important;margin-left:0 !important;' +
             'height:auto !important;max-height:none !important;overflow:visible !important;}' +
@@ -1198,6 +1513,7 @@
 
     var HIDE_STYLE_ID = 'fh-hide-style';
     var HIDE_STORE_KEY = 'fh_hide_opts_v1';
+    var MODE_STORE_KEY = 'fh_modes_v1';   // 面板开关组合（刷新后恢复）
     var HIDE_ITEMS = [
         { key: 'answer', cls: 'fh-hide-answer', mark: 'fh-m-answer', label: '正确答案' },
         { key: 'yours',  cls: 'fh-hide-yours',  mark: 'fh-m-yours',  label: '你的答案' },
@@ -1236,6 +1552,29 @@
         setHideTime(item, hide);
     }
 
+    // 面板开关组合：记住上次手动切过的组合，刷新后恢复；首次无记录时用默认「全部显示」
+    function loadModes() {
+        try {
+            var raw = localStorage.getItem(MODE_STORE_KEY);
+            if (!raw) return null;
+            var o = JSON.parse(raw);
+            return (o && typeof o === 'object') ? o : null;
+        } catch (e) { return null; }
+    }
+    function saveModes(o) {
+        try { localStorage.setItem(MODE_STORE_KEY, JSON.stringify(o)); } catch (e) { /* 忽略 */ }
+    }
+    function persistModes() {
+        saveModes({
+            res: RES_MODE === 'close' ? 'close' : 'open',
+            body: BODY_MODE === 'close' ? 'close' : 'open',
+            hide: HIDE_MODE === 'close' ? 'close' : 'open',
+            video: VIDEO_MODE === 'close' ? 'close' : 'open',
+            wrong: WRONG_MODE === 'open' ? 'open' : 'close',
+            rate: !!_fhRateVisible
+        });
+    }
+
     function loadHideOpts() {
         try {
             var raw = localStorage.getItem(HIDE_STORE_KEY);
@@ -1257,6 +1596,8 @@
         });
         // 「你的答案」在个别题型里是独立于统计盒的红字元素，除了盒级标记再补一条元素级规则
         css.push('body.fh-hide-yours .your-answer{display:none !important;}');
+        // 题号旁「全站正确率」文本：用 body class 控制，滚出新题时自动生效
+        css.push('body.fh-hide-rate-span .fh-item-rate{display:none !important;}');
         // 选项对错颜色压平：真实高亮只作用于 div.input-radio，状态 class 为 .correct / .wrong / .correctLost
         css.push(
             'body.fh-hide-color .solution-choice-container .input-radio,',
@@ -1323,6 +1664,29 @@
             processItem(item);
             setRes(item, RES_MODE === 'open');
         });
+        updateAllBtns();
+        persistModes();
+    }
+
+    /* ---------- 解析视频开合：独立期望值（连标题栏与会员广告整块） ---------- */
+
+    // 视频开关只重贴视频那一块，文字保持当前态；单题手动例外也不被意外接管
+    function setVideo(item, open) {
+        var textOpen = item.__fenbiResManual
+            ? (typeof item.__fenbiResOpen === 'boolean' ? item.__fenbiResOpen : true)
+            : (RES_MODE !== 'close');
+        if (!paintSolutionParts(item, textOpen, open, true)) return;  // 旧页面无独立视频块
+        if (textOpen || open) hideExtras(item);
+    }
+
+    function applyVideoMode(mode) {
+        VIDEO_MODE = (mode === 'open') ? 'open' : 'close';
+        getItems().forEach(function (item) {
+            processItem(item);
+            setVideo(item, VIDEO_MODE === 'open');
+        });
+        updateAllBtns();
+        persistModes();
     }
 
     /* ---------- 题目开合：题干 + 选项 + 统计信息 ---------- */
@@ -1334,6 +1698,8 @@
             processItem(item);
             setBody(item, BODY_MODE === 'open');
         });
+        updateAllBtns();
+        persistModes();
     }
 
     // SPA 重渲染后按当前题目期望态重新贴一次
@@ -1352,17 +1718,38 @@
         ['answer', 'yours', 'rate', 'prone', 'color'].forEach(function (k) {
             setHide(k, hide);
         });
+        updateAllBtns();
+        persistModes();
     }
 
     // SPA 重渲染后 DOM 上的显示状态会被还原成默认值，
     // 按"当前期望"重新贴一次，否则表现为"点了没反应 / 自己又弹回来"
     function syncResState(item) {
-        // 用户手动动过这一题：不强制收合，只把真实态记回来（供按钮文字与键盘判断用）
+        // 用户手动动过这一题：不强制收合，按这一题自己记的文字/视频态重贴
         if (item.__fenbiResManual) {
-            item.__fenbiResOpen = readRealResOpen(item);
+            var parts = solutionSections(item, 'text').length + solutionSections(item, 'video').length;
+            if (parts) {
+                // 分区结构下 container 的高度只代表「有没有任一分区展开」，
+                // 不能再拿它反推文字态，否则「关文字留视频」会被 3 秒轮询冲掉
+                var t = typeof item.__fenbiResOpen === 'boolean' ? item.__fenbiResOpen : true;
+                var v = typeof item.__fenbiVideoOpen === 'boolean' ? item.__fenbiVideoOpen : true;
+                paintSolutionParts(item, t, v, false);
+            } else {
+                item.__fenbiResOpen = readRealResOpen(item);
+            }
             if (item.__fenbiResBtn) {
                 item.__fenbiResBtn.textContent = item.__fenbiResOpen ? '解析 ▾' : '解析 ▸';
             }
+            return;
+        }
+        // 分区结构：文字 / 视频各自按全局期望态贴一次，只写内联样式、不点原生按钮
+        if (paintSolutionParts(item, RES_MODE !== 'close', VIDEO_MODE !== 'close', false)) {
+            item.__fenbiResOpen = RES_MODE !== 'close';
+            if (item.__fenbiResBtn) {
+                item.__fenbiResBtn.textContent = item.__fenbiResOpen ? '解析 ▾' : '解析 ▸';
+            }
+            // 与旧 setRes 保持一致：任一分区展开时，考点/来源/笔记等无关项继续压住
+            if (item.__fenbiResOpen || VIDEO_MODE !== 'close') hideExtras(item);
             return;
         }
         if (RES_MODE === 'open') { setRes(item, true); return; }
@@ -1416,7 +1803,9 @@
             processItem(item);
             setWrong(item, WRONG_MODE === 'close' || isWrong(item) !== false);
         });
+        applyTabFilter();          // 组内题号按钮与题目同一判据，一起显隐
         updateAllBtns();
+        persistModes();
     }
 
     // SPA 重渲染 / 新题加载后按当前期望态重新贴一次
@@ -1425,22 +1814,56 @@
         setWrong(item, isWrong(item) !== false);
     }
 
-    // 重置 = 四组全部回到"展开/不过滤"：题干/选项可见、答案信息可见、解析全展开、错题过滤关闭
+    // 重置 = 全部回到「展开/不过滤」：题干/选项可见、答案信息可见、解析文字与视频全展开、错题过滤关闭
     function resetAll() {
         HIDE_ITEMS.forEach(function (it) { document.body.classList.remove(it.cls); });
         saveHideOpts({});
         applyResMode('open');
+        applyVideoMode('open');
         applyBodyMode('open');
         applyHideMode('open');
         applyWrongMode('close');
-        getItems().forEach(function (item) { setHideTime(item, false); });
+        setHide('time', false);
+        setRateVisible(true);
         updateAllBtns();
     }
 
     /* ---------- 常驻展示面板 ---------- */
     // 全局引用，供 updateAllBtns 使用
-    var _fhRowRes = null, _fhRowBody = null, _fhRowHide = null, _fhRowWrong = null, _fhRateRow = null;
+    var _fhRowAll = null;
+    var _fhRowRes = null, _fhRowVideo = null, _fhRowBody = null, _fhRowHide = null, _fhRowWrong = null, _fhRateRow = null;
     var _fhRateVisible = true;   // 正确率开关当前是否开启（控制题号右侧全站正确率文本显隐）
+
+    // 正确率显隐：body class 兜底新加载的题 + 立即同步已有题，并记住状态
+    function setRateVisible(v) {
+        v = !!v;
+        _fhRateVisible = v;
+        ensureHideStyle();
+        document.body.classList.toggle('fh-hide-rate-span', !v);
+        getItems().forEach(function (item) {
+            var span = item.__fenbiRateSpan;
+            if (span) span.style.display = v ? '' : 'none';
+        });
+        persistModes();
+    }
+
+    // 「全部」总控是否为全显示态：题目 / 答案 / 解析文字 / 解析视频 / 正确率都明确为开
+    function isAllOpen() {
+        return BODY_MODE === 'open' && RES_MODE === 'open' &&
+               VIDEO_MODE === 'open' && HIDE_MODE === 'open' && !!_fhRateVisible;
+    }
+
+    // 全部显示 / 全部折叠：统管 题目 / 答案 / 解析文字 / 解析视频 / 正确率。
+    // 「仅错题」是过滤器，不归它管；「答题用时」绑在答案行上，随答案一起联动。
+    function applyAllMode(showAll) {
+        applyResMode(showAll ? 'open' : 'close');
+        applyVideoMode(showAll ? 'open' : 'close');
+        applyBodyMode(showAll ? 'open' : 'close');
+        applyHideMode(showAll ? 'open' : 'close');
+        setHide('time', !showAll);
+        setRateVisible(showAll);
+        updateAllBtns();
+    }
 
     /* ---------- 面板拖拽位置记忆（localStorage） ---------- */
 
@@ -1557,14 +1980,11 @@
             'padding:4px 10px;border:1px solid #c9e0ff;cursor:pointer;user-select:none;' +
             'box-shadow:0 1px 3px rgba(0,0,0,0.08);line-height:1.5;white-space:nowrap;';
 
-        // 一行 = 标签 + 单个来回切换按钮；点一次切一次，切完立刻按真实态重画
+        // 一行 = 单个来回切换按钮；行名并进按钮文字，不再单独放左侧灰字
+        // （灰字半透明时容易和题干文字叠在一起，看不清）
         function makeRow(label, getOn, setOn) {
             var row = document.createElement('div');
             row.style.cssText = 'display:flex;gap:6px;align-items:center;';
-            var lbl = document.createElement('span');
-            lbl.textContent = label;
-            lbl.style.cssText = 'flex:0 0 auto;color:#666;font-size:12px;';
-            row.appendChild(lbl);
 
             var btn = document.createElement('button');
             btn.style.cssText = btnStyle + 'background:#f0f6ff;color:#0066cc;border:1px solid #c9e0ff;';
@@ -1575,8 +1995,14 @@
             });
 
             row.appendChild(btn);
-            return { row: row, btn: btn, label: lbl };
+            return { row: row, btn: btn, labelText: label };
         }
+
+        // 当前已全部显示 / 当前已全部折叠（总控，按钮自带完整描述，不再拼行名）
+        _fhRowAll = makeRow('',
+            function () { return isAllOpen(); },
+            function (v) { applyAllMode(v); });
+        _fhRowAll.btn.title = '当前态：全部显示 / 全部折叠；点击切到另一态';
 
         // 题目
         _fhRowBody = makeRow('题目',
@@ -1588,10 +2014,14 @@
             function () { return HIDE_MODE !== 'close'; },
             function (v) { if (v) { applyHideMode('open'); setHide('time', false); } else { applyHideMode('close'); setHide('time', true); } });
 
-        // 解析
-        _fhRowRes = makeRow('解析',
+        // 解析文字 / 解析视频：两行各管一块；视频那块连标题栏与会员广告一起折叠
+        _fhRowRes = makeRow('解析文字',
             function () { return RES_MODE !== 'close'; },
             function (v) { if (v) applyResMode('open'); else applyResMode('close'); });
+        _fhRowVideo = makeRow('解析视频',
+            function () { return VIDEO_MODE !== 'close'; },
+            function (v) { applyVideoMode(v ? 'open' : 'close'); });
+        _fhRowVideo.btn.title = '折叠/展开解析视频整块（含标题栏与会员广告）';
 
         // 错题（开启后只保留做错的题，隐藏做对的题；默认关闭）
         _fhRowWrong = makeRow('仅错题',
@@ -1601,54 +2031,45 @@
         // 正确率（控制所有题号右侧的全站正确率文本显隐；默认开启）
         _fhRateRow = makeRow('正确率',
             function () { return _fhRateVisible; },
-            function (v) {
-                _fhRateVisible = v;
-                getItems().forEach(function (item) {
-                    var span = item.__fenbiRateSpan;
-                    if (span) span.style.display = v ? '' : 'none';
-                });
-            });
+            function (v) { setRateVisible(v); });
 
-        // 折叠按钮：点击切换五个功能项的展开/收起
-        var foldBtn = document.createElement('button');
-        foldBtn.textContent = '展开';
-        foldBtn.title = '展开/收起功能按钮';
-        foldBtn.style.cssText = 'border-radius:16px;font-size:11px;' +
-            'padding:4px 10px;border:1px solid #c9e0ff;background:#f0f6ff;color:#0066cc;cursor:pointer;user-select:none;';
-        var foldState = false;
-        foldBtn.addEventListener('click', function () {
-            foldState = !foldState;
-            foldBtn.textContent = foldState ? '收起' : '展开';
-            _fhRowBody.row.style.display = foldState ? '' : 'none';
-            _fhRowHide.row.style.display = foldState ? '' : 'none';
-            _fhRowRes.row.style.display = foldState ? '' : 'none';
-            _fhRowWrong.row.style.display = foldState ? '' : 'none';
-            _fhRateRow.row.style.display = foldState ? '' : 'none';
-        });
+        /* ---------- 顶部椭圆按钮：品牌 + 展开/收起，两态共用一枚 ---------- */
+        // 品牌信息就放在「收起」这枚按钮里，不再单独挂一条胶囊和一个「+」；
+        // 一行长条太宽，改成两行小字：第一行脚本名 + 展开/收起，第二行出品/版本。
+        var toggleBtn = document.createElement('button');
+        toggleBtn.style.cssText = 'display:flex;flex-direction:column;align-items:center;' +
+            'justify-content:center;gap:1px;background:#fff;' +
+            'border:1px solid #dbe6f7;border-radius:20px;padding:5px 13px;' +
+            'box-shadow:0 1px 4px rgba(0,0,0,0.10);cursor:pointer;' +
+            'user-select:none;line-height:1.25;white-space:nowrap;';
 
-        // 折叠：所有功能项默认隐藏
-        _fhRowBody.row.style.display = 'none';
-        _fhRowHide.row.style.display = 'none';
-        _fhRowRes.row.style.display = 'none';
-        _fhRowWrong.row.style.display = 'none';
-        _fhRateRow.row.style.display = 'none';
+        var brandLine = document.createElement('span');
+        brandLine.style.cssText = 'display:flex;align-items:center;gap:6px;';
+        var brandName = document.createElement('span');
+        brandName.textContent = '粉笔自由折叠';
+        brandName.style.cssText = 'color:#0066cc;font-weight:700;font-size:11px;white-space:nowrap;';
+        var foldAction = document.createElement('span');
+        foldAction.style.cssText = 'color:#0066cc;font-size:10px;white-space:nowrap;' +
+            'border-left:1px solid #dbe6f7;padding-left:6px;';
+        brandLine.appendChild(brandName);
+        brandLine.appendChild(foldAction);
 
-        // 挂载顺序即面板从上到下的显示顺序：展开按钮 → 题目 → 答案 → 解析 → 仅错题 → 正确率 → 重置 → 拖动面板
-        group.appendChild(foldBtn);
-        group.appendChild(_fhRowBody.row);
-        group.appendChild(_fhRowHide.row);
-        group.appendChild(_fhRowRes.row);
-        group.appendChild(_fhRowWrong.row);
-        group.appendChild(_fhRateRow.row);
+        var brandMeta = document.createElement('span');
+        brandMeta.textContent = '粉笔脚本君出品 v' + SCRIPT_VERSION;
+        brandMeta.style.cssText = 'display:block;color:#98a4b5;font-size:9px;white-space:nowrap;';
+        toggleBtn.appendChild(brandLine);
+        toggleBtn.appendChild(brandMeta);
 
-        // 底部重置按钮和拖动面板按钮紧挨着
+        var _fhRows = [_fhRowAll.row, _fhRowBody.row, _fhRowHide.row, _fhRowRes.row,
+                       _fhRowVideo.row, _fhRowWrong.row, _fhRateRow.row];
+
+        // 「重置」只在展开态出现；「拖动面板」收起/展开都在（收起态照样能挪位置）
         var br = document.createElement('button');
         br.textContent = '重置';
         br.style.cssText = 'border-radius:16px;font-size:11px;' +
             'padding:4px 10px;border:1px solid #ddd;background:#f7f7f7;' +
             'color:#555;cursor:pointer;user-select:none;';
         br.addEventListener('click', function () { resetAll(); });
-        group.appendChild(br);
 
         var dragBtn = document.createElement('button');
         dragBtn.textContent = '拖动面板';
@@ -1657,11 +2078,58 @@
             'padding:4px 10px;border:1px dashed #bbb;background:#fafafa;' +
             'color:#666;cursor:move;user-select:none;touch-action:none;';
         bindPanelDrag(dragBtn, group);
+
+        // 挂载顺序：椭圆按钮 → 7 行功能 → 重置 → 拖动面板
+        group.appendChild(toggleBtn);
+        for (var ri = 0; ri < _fhRows.length; ri++) group.appendChild(_fhRows[ri]);
+        group.appendChild(br);
         group.appendChild(dragBtn);
+
+        // 注意：功能行的 display 是 cssText 里写死的 flex，恢复时不能赋 ''（会把 flex 清掉、
+        // 退化成 block），必须显式写回 'flex'。
+        var foldState = true;
+        function setFoldState(folded) {
+            foldState = folded;
+            foldAction.textContent = folded ? '展开' : '收起';
+            toggleBtn.title = folded ? '点击展开设置面板' : '点击收起设置面板';
+            br.style.display = folded ? 'none' : '';
+            for (var i = 0; i < _fhRows.length; i++) {
+                _fhRows[i].style.display = folded ? 'none' : 'flex';
+            }
+        }
+        // 整枚按钮都能点：收起态展开、展开态收起，不再有单独的「+」
+        toggleBtn.addEventListener('click', function () { setFoldState(!foldState); wakePanel(); });
 
         group.style.cssText = 'position:fixed;top:10px;right:10px;z-index:2147483647;' +
             'display:flex;flex-direction:column;gap:3px;align-items:flex-end;' +
-            'font-family:-apple-system,"PingFang SC",Arial,sans-serif;';
+            'font-family:-apple-system,"PingFang SC",Arial,sans-serif;' +
+            'transition:opacity 0.35s ease;';
+
+        /* ---------- 5 秒不动 → 整个设置板块淡化 ---------- */
+        // 口径：指针移出面板才开始计时；移回 / 点 / 触摸立刻恢复。
+        // iPad 没有 hover，用 touchstart 唤醒、touchend 后重新计时。
+        // opacity 不影响命中，淡化时按钮依然可点。
+        var idleTimer = null;
+        function wakePanel() {
+            if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+            group.style.opacity = '1';
+        }
+        function scheduleIdle() {
+            if (idleTimer) clearTimeout(idleTimer);
+            idleTimer = setTimeout(function () {
+                idleTimer = null;
+                group.style.opacity = String(IDLE_OPACITY);
+            }, IDLE_DELAY);
+        }
+        group.addEventListener('mouseenter', wakePanel);
+        group.addEventListener('mouseleave', scheduleIdle);
+        group.addEventListener('mousedown', wakePanel);
+        group.addEventListener('focusin', wakePanel);
+        group.addEventListener('touchstart', wakePanel, { passive: true });
+        group.addEventListener('touchend', scheduleIdle, { passive: true });
+
+        setFoldState(true);      // 默认收起：只留椭圆按钮 + 拖动面板
+        scheduleIdle();          // 进场后没碰过面板，5 秒后自动淡化
 
         // 刷新后恢复上次拖拽位置（无记录则保持默认右上角）
         applyPanelPos(group);
@@ -1680,13 +2148,14 @@
         updateResRateSpan();
     }
 
-    // 单个按钮按真实状态重画：文字（已开/已关）+ 配色
-    function paintRow(row, on) {
+    // 单个按钮按真实状态重画：文字（默认已开/已关，总控可自定义）+ 配色
+    function paintRow(row, on, onText, offText) {
         if (!row || !row.btn) return;
         row.btn.style.setProperty('background', on ? '#0066cc' : '#f0f6ff');
         row.btn.style.setProperty('color', on ? '#fff' : '#0066cc');
         row.btn.style.setProperty('border-color', on ? '#0066cc' : '#c9e0ff');
-        row.btn.textContent = on ? '已开' : '已关';
+        var prefix = row.labelText ? row.labelText + ' ' : '';
+        row.btn.textContent = prefix + (on ? (onText || '已开') : (offText || '已关'));
     }
 
     // 解析行「全站正确率」常驻文本更新：优先显示当前高亮题正确率，没有则显示最后一题
@@ -1707,10 +2176,12 @@
         span.textContent = '全站正确率：' + rate;
     }
 
-    // 按当前真实状态刷新四个按钮（点完立即调，轮询里也调，保证文字实时跟随）
+    // 按当前真实状态刷新所有按钮（点完立即调，轮询里也调，保证文字实时跟随）
     function updateAllBtns() {
-        if (!_fhRowRes || !_fhRowBody || !_fhRowHide || !_fhRowWrong || !_fhRateRow) return;
+        if (!_fhRowAll || !_fhRowRes || !_fhRowVideo || !_fhRowBody || !_fhRowHide || !_fhRowWrong || !_fhRateRow) return;
+        paintRow(_fhRowAll, isAllOpen(), '当前已全部显示', '当前已全部折叠');
         paintRow(_fhRowRes,  RES_MODE  !== 'close');
+        paintRow(_fhRowVideo, VIDEO_MODE !== 'close');
         paintRow(_fhRowBody, BODY_MODE !== 'close');
         paintRow(_fhRowHide, HIDE_MODE !== 'close' && loadHideOpts()['time'] !== true);
         paintRow(_fhRowWrong, WRONG_MODE === 'open');
@@ -1735,16 +2206,21 @@
         homeSplitLeft();
         flattenGroups();
 
-        // 本次页面加载的初始态：题目 / 答案 / 解析 / 错题 四组开关一律「已关」。
-        // 只在首个 init 里下发一次，之后用户手动切换的态由期望态变量维持，不再被这里覆盖。
-        if (!window.__fhDefaultClosed) {
-            window.__fhDefaultClosed = true;
-            applyResMode('close');    // 解析：全部收起
-            applyBodyMode('close');   // 题目：题干/选项收起，只留题号
-            applyHideMode('close');   // 答案：正确答案/你的答案/正确率/易错项/对错颜色全隐藏
-            setHide('time', true);    // 答题用时一并隐藏（与答案组同开关）
+        // 首个 init 定一次初始态：有上次记录就恢复组合，没有记录 = 首次使用，默认「全部显示」。
+        // 之后用户手动切换的态由期望态变量维持，不再被这里覆盖。
+        if (!window.__fhModesApplied) {
+            window.__fhModesApplied = true;
+            var m = loadModes();
+            applyResMode(m && m.res === 'close' ? 'close' : 'open');
+            applyVideoMode(m && m.video === 'close' ? 'close' : 'open');
+            applyBodyMode(m && m.body === 'close' ? 'close' : 'open');
+            applyHideMode(m && m.hide === 'close' ? 'close' : 'open');
+            setHide('time', !!(m && m.hide === 'close'));   // 答题用时与答案行联动
+            applyWrongMode(m && m.wrong === 'open' ? 'open' : 'close');
+            setRateVisible(m ? m.rate !== false : true);
             updateAllBtns();
         }
+        applyTabFilter();          // 首次进场 / SPA 重渲染后补一次
         updateResRateSpan();
     }
 
@@ -1845,6 +2321,7 @@
         foldMaterials();
         homeSplitLeft();
         flattenGroups();
+        applyTabFilter();          // 懒渲染出统计信息 / Angular 重建导航条后重贴
         updateAllBtns();
     }, 3000);
 })();
