@@ -693,7 +693,7 @@
 
     <div class="stats">
       <div class="stat"><b>9</b><span>个脚本</span></div>
-      <div class="stat"><b>4,411</b><span>累计安装</span></div>
+      <div class="stat"><b>9,055</b><span>累计安装</span></div>
       <div class="stat"><b>4</b><span>类场景</span></div>
       <div class="stat"><b>30</b><span>天完成</span></div>
     </div>
@@ -804,48 +804,48 @@
       id: 8352, name: "粉笔错题本", cat: "资料整理", glyph: "错",
       desc: "一键收藏题目，按自己的错误原因分组，最多四级。支持笔记、JSON 导入导出，以及 WebDAV 同步（带冲突重试和连接诊断）。",
       tags: ["错题整理", "WebDAV", "笔记"],
-      installs: 682, updated: "2 天前", demo: "07" },
+      installs: 810, updated: "2 天前", demo: "07" },
     {
       id: 8270, name: "粉笔自动全开草稿", cat: "刷题辅助", glyph: "草",
       desc: "进页面自动展开全部草稿，每题配 ABCD 字母框和笔刷面板。针对平板手写做了指针去重，Apple Pencil 和触屏笔都能一笔画成一条线。",
       tags: ["手写草稿", "平板适配", "性能优化"],
-      installs: 1710, updated: "刚刚", demo: "01" },
+      installs: 2036, rating: "5.0", updated: "刚刚", demo: "01" },
     {
       id: 8216, name: "粉笔自由折叠", cat: "刷题辅助", glyph: "折",
       desc: "题号一点就收起题干，悬浮显示全站正确率。题目、答案、解析三组开关，还能只看错题，↑↓ 直接切题。",
       tags: ["背题模式", "快捷键", "正确率着色"],
-      installs: 973, rating: "5.0", updated: "刚刚", demo: "02" },
+      installs: 1277, rating: "5.0", updated: "刚刚", demo: "02" },
     {
-      id: 8246, name: "粉笔试卷排版打印", cat: "排版打印", glyph: "印",
+      id: 8246, name: "粉笔试卷排版打印（支持iPad 安卓平板）", cat: "排版打印", glyph: "印",
       desc: "把在线试卷排成 A4 真卷：题号悬挂缩进、屏幕直接分页、题目可跨页，打印或导出 PDF 都行。基于「火焰百合」原版二次开发。",
-      tags: ["A4 排版", "PDF 导出", "二次开发"],
-      installs: 1105, updated: "1 个月前", demo: "03" },
+      tags: ["A4 排版", "PDF 导出", "错题导出"],
+      installs: 1258, updated: "今天", demo: "03" },
     {
       id: 8256, name: "悬浮查词", cat: "资料整理", glyph: "词",
       desc: "做逻辑填空时鼠标悬停在成语上就出释义、出处、例句和近反义。成语走本地词库秒开，词语按需联网查询。",
       tags: ["本地词库", "离线可用", "MIT"],
-      installs: 751, updated: "18 天前", demo: "04" },
+      installs: 887, updated: "18 天前", demo: "04" },
     {
       id: 8303, name: "粉笔一页成卷", cat: "排版打印", glyph: "卷",
       desc: "在题目页就地套用真卷版式：宋体、首行缩进、悬挂缩进、选项 1/2/4 列可切换。只改样式，不动题目和原有交互。",
       tags: ["就地排版", "字号可调", "无侵入"],
-      installs: 868, updated: "6 天前", demo: "08" },
+      installs: 1032, updated: "6 天前", demo: "08" },
     {
       id: 8272, name: "粉笔评论查看器", cat: "刷题辅助", glyph: "评",
       desc: "题目页注入「查看评论」，直接调接口展示精选评论，优质的直接收藏并同步到 WebDAV。",
       tags: ["精选评论", "收藏", "WebDAV"],
-      installs: 698, rating: "5.0", updated: "20 天前", demo: "05"
+      installs: 815, rating: "5.0", updated: "20 天前", demo: "05"
     },
     {
       id: 8223, name: "试卷跳转面板", cat: "效率增强", glyph: "跳",
       desc: "右上角悬浮年份／季／类别面板，每一季直接标着做完没做完，选好就跳转，不用在几百份里翻。",
       tags: ["进度可视", "快速跳转", "行测"],
-      installs: 396, updated: "1 个月前", demo: "06" },
+      installs: 480, updated: "1 个月前", demo: "06" },
     {
       id: 8292, name: "一键排版打印（自选题目）", cat: "排版打印", glyph: "打",
       desc: "标准封面、自定义页边距、字体与分页策略，可只导出选中的题目。基于「行测小助理」原版二次开发。",
       tags: ["自选导出", "封面模板", "二次开发"],
-      installs: 371, updated: "19 天前"
+      installs: 460, updated: "19 天前"
     }
   ];
 
@@ -970,6 +970,16 @@
   /* ---------- 更新记录 ---------- */
   /* 最新一条在最前面；每次发版往数组最前面加一条就行 */
   const UPDATES = [
+    {
+      date: "11-20", full: "2026 年 11 月 20 日", name: "粉笔试卷排版打印", glyph: "印",
+      cat: "排版打印", prev: "11.11.9", ver: "11.11.30",
+      sum: "支持 iPad / 安卓平板排版打印，新增套卷错题导出",
+      note: [
+        "更新后支持 iPad、安卓平板排版打印并导出 PDF",
+        "更新后支持套卷的错题导出",
+        "脚本名改为「粉笔试卷排版打印（支持iPad 安卓平板）」"
+      ]
+    },
     {
       date: "11-13", full: "2026 年 11 月 13 日", name: "粉笔自由折叠", glyph: "折",
       cat: "刷题辅助", prev: "3.0.3", ver: "3.1.1",

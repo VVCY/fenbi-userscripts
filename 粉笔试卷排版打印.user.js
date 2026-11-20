@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         粉笔试卷排版打印
+// @name         粉笔试卷排版打印（支持iPad 安卓平板）
 // @namespace    http://tampermonkey.net/
-// @version      11.11.9
+// @version      11.11.30
 // @description  把粉笔在线试卷（行测 / 申论）一键排版成 A4 真卷：题号悬挂缩进、屏幕直接显示 A4 分页、题目可跨页，支持直接打印或导出 PDF。本地运行，无付费、无次数限制。
 // @match        *://spa.fenbi.com/*
 // @match        *://www.fenbi.com/spa/*
@@ -16,11 +16,16 @@
  *
  * 流程：提取（读页面 DOM，产出结构化题目数据）
  *       → 渲染（数据拼成一份自包含的打印用 HTML）
- *       → 输出（新窗口打印，或下载成 .html 文件）
+ *       → 输出（页内浮层 iframe 仅供屏幕预览；点「打印 / 存 PDF」则开独立窗口
+ *                  只放排版结果再打印——避免安卓 WebView 打印 iframe 时把深色
+ *                  父页面一起打进去出现黑页；「纯净预览」隐藏工具条，供 VIA
+ *                  「保存页面为 PDF」存出无导航栏 PDF。结果页按来源平台只显示
+ *                  对应那一个按钮 + 醒目提示，不再内嵌位图 PDF 库）
  *
  * 全程在浏览器本地完成，不请求任何自己的服务端；页面上不植入计数、授权、
  * 账号体系相关的任何逻辑，也没有使用次数限制。
  */
+
 
 (function () {
     'use strict';
@@ -29,7 +34,7 @@
      * 一、配置
      * ================================================================ */
 
-    const VERSION = '1.11.9';
+    const VERSION = '1.11.30';
     const STORE_KEY = 'fenbi_print_settings';
     const STORE_POS = 'fenbi_print_panel_pos';
     const TITLE_PLACEHOLDER = '正在读取当前试卷…';
@@ -77,8 +82,8 @@
 
     const DEFAULTS = {
         cover: true,           // 默认勾选：打印封面页（含缓冲页）
-        // 署名是写死在卷子里的，面板不提供入口
-        signature: '工具支持 小红书@火焰百合',
+        // 页脚 / 封面署名已改为当前试卷名（见 collectOptions），此项仅留兼容、不再使用
+        signature: '',
         margin: '15mm 15mm',
         fontFamily: 'simsun',  // 正文字体，默认宋体；存 key 不存链
         fontSize: 15,
@@ -772,10 +777,17 @@
     // 把当前面板状态读成排版参数（带边界钳制）
     function collectOptions() {
         const s = readSettings();
+        // 当前试卷名：面板输入 → 页面真实标题 → 兜底名。
+        // 页脚署名 / 封面署名都用它，与试卷标题保持一致。
+        const paperTitle = (function () {
+            const v = ($('fp-title').value || '').trim();
+            if (v && !BAD_TITLE.has(v)) return v;
+            return readPaperTitle() || '公务员录用考试试卷';
+        })();
         return {
             cover: !!$('fp-cover').checked,
-            // 署名固定，没有面板入口，也不提供关闭开关
-            signature: DEFAULTS.signature,
+            // 页脚 / 封面署名 = 当前试卷名（已无推广语），没有面板入口
+            signature: paperTitle,
             margin: $('fp-margin').value,
             // 非法/空值一律回退默认宋体：杜绝 font-family:undefined 写进生成页 CSS
             fontFamily: (function () {
@@ -798,14 +810,8 @@
             autoPrint: !!$('fp-autoPrint').checked,
             // 页眉开关：面板「设置 ▾」里的「打印页眉」。元素缺失时按默认（关）处理
             header: (function () { var el = $('fp-header'); return el ? !!el.checked : !!DEFAULTS.header; })(),
-            // 兜底顺序：① 面板里用户填的（或已回填的）→ ② 页面真实标题 → ③ 兜底名。
-            // 拦截 'null'/'undefined'：把 null 赋给 input.value 会被 JS 强转成字符串 'null'。
-            // readPaperTitle() 读不到时可返回空串，这里必须再兜一层，否则封面会印出空白。
-            title: (function () {
-                const v = ($('fp-title').value || '').trim();
-                if (v && !BAD_TITLE.has(v)) return v;
-                return readPaperTitle() || '公务员录用考试试卷';
-            })()
+            // 兜底顺序同上，与 signature 共用同一个试卷名
+            title: paperTitle
         };
     }
 
@@ -957,6 +963,8 @@
 .fp-foot{margin-top:12px;padding-top:9px;font-size:11px;color:#5c6674;text-align:center;letter-spacing:1px;border-top:1px solid #2e333d}
 .fp-contact{display:none;margin-top:12px;margin-bottom:8px;font-size:11px;color:#4dd0e1;text-align:center;text-decoration:none;cursor:pointer}
 .fp-contact:hover{text-decoration:underline}
+/* 「检查更新」按钮按要求隐藏；节点保留，bindPanel 里的 addEventListener 不报错 */
+#fp-check{display:none!important}
 .fp-update{display:none;align-items:center;gap:8px;margin-top:10px;padding:9px 11px;border-radius:6px;background:#1f2731;border:1px solid #3a4049;color:#a8b2bf;font-size:12px;line-height:1.5}
 .fp-update a{color:#4dd0e1;font-weight:700;text-decoration:none;white-space:nowrap;flex-shrink:0}
 .fp-update i{margin-left:auto;font-style:normal;cursor:pointer;color:#8b95a3;padding:0 4px;flex-shrink:0}
@@ -1037,24 +1045,52 @@
 .fp-pick-brand .fp-emoji{font-size:15px}
 .fp-pick-x{font-size:19px;color:#6b7583;cursor:pointer;padding:2px 8px;border-radius:6px;line-height:1}
 .fp-pick-x:hover{color:#e6eaf0;background:#2b323d}
+.fp-pick-credit{padding:8px 16px 2px;font-size:12px;line-height:1.7;color:#8b95a3;flex:0 0 auto}
+.fp-pick-credit b{color:#5ea8ff;font-weight:600}
 .fp-pick-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid #262b34;flex:0 0 auto}
 .fp-batch{background:#252a33;color:#a8b2bf;border:1px solid #3a4049;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;padding:7px 12px;white-space:nowrap;transition:background .15s}
 .fp-batch:hover{background:#2f353f;color:#d7dce3}
 .fp-batch-orange{background:#f59e0b;color:#1a1d23;border:1px solid #f59e0b;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;font-family:inherit;padding:7px 12px;white-space:nowrap;transition:background .15s,border-color .15s}
 .fp-batch-orange:hover{background:#ff8f1f;border-color:#ff8f1f;color:#1a1d23}
 .fp-batch-orange:active{background:#e08b06;border-color:#e08b06}
+.fp-wrong-badge{display:inline-block;flex:0 0 auto;font-size:11px;font-weight:700;line-height:1.5;color:#fff;background:#dc2626;border-radius:4px;padding:1px 6px;white-space:nowrap}
+.fp-wrong-board{display:inline-block;flex:0 0 auto;font-size:11px;line-height:1.5;color:#fca5a5;background:#3a2020;border:1px solid #6b3030;border-radius:4px;padding:1px 5px;white-space:nowrap}
+.fp-batch-red{background:#3a1d1d;color:#fca5a5;border:1px solid #7f1d1d;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;font-family:inherit;padding:7px 12px;white-space:nowrap;transition:background .15s}
+.fp-batch-red:hover{background:#4a2424;color:#fecaca}
+/* 结果浮层：排版结果在本页 iframe 里显示（VIA/WKWebView 上 window.open 新标签写不进内容，
+   会白屏；页内 iframe 的 doc.write 实测可靠）。z-index 压过面板和 mask，close 始终在右上。 */
+#fp-result{position:fixed;inset:0;z-index:9999998;background:#0f1216;display:none;flex-direction:column;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+#fp-result.show{display:flex}
+#fp-result-bar{display:flex;align-items:center;gap:10px;padding:9px 14px;background:#181b21;border-bottom:1px solid #2e333d;flex:0 0 auto;flex-wrap:wrap}
+#fp-result-bar .fp-rs-t{font-size:13px;font-weight:700;color:#e6eaf0;white-space:nowrap}
+#fp-result-bar .fp-rs-h{font-size:13px;font-weight:600;color:#ffd166;line-height:1.5;flex:1 1 260px;min-width:0;background:rgba(255,209,102,.1);border:1px solid rgba(255,209,102,.35);border-radius:6px;padding:6px 10px}
+#fp-result-bar .fp-rs-sp{margin-left:auto}
+#fp-result-bar .fp-btn,#fp-result-bar .fp-btn2{flex:0 0 auto;padding:8px 14px;white-space:nowrap}
+#fp-result-frame{flex:1 1 auto;width:100%;border:0;background:#e5e7eb}
+/* 纯净预览：隐藏整条工具条，让 VIA 的「保存页面为 PDF」只拍到卷子，不带导航栏 */
+#fp-result.clean #fp-result-bar{display:none!important}
+#fp-result.clean{background:#fff}
+.fp-clean-tip{position:fixed;top:0;left:0;right:0;z-index:9999999;background:rgba(15,23,42,.88);
+  color:#fff;font-size:12px;line-height:1.5;text-align:center;padding:9px 12px;
+  transition:opacity .4s;pointer-events:none}
 .fp-pick-bar .fp-pick-range{width:230px;flex:0 0 auto}
 .fp-pick-cnt{margin-left:auto;font-size:12px;color:#8b95a3;white-space:nowrap}
 /* 板块快捷勾选行（批量按钮行下方） */
 .fp-boards{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 16px;border-bottom:1px solid #262b34;flex:0 0 auto;background:#1d2129}
 .fp-boards-tt{font-size:12px;font-weight:700;color:#8b95a3;flex:0 0 auto}
+.fp-boards-legend{font-size:11px;color:#6b7583;flex:0 0 auto;white-space:nowrap}
 .fp-boards-hint{font-size:12px;color:#6b7583}
-.fp-board{display:flex;align-items:center;gap:6px;background:#252a33;border:1px solid #3a4049;border-radius:6px;padding:5px 10px;cursor:pointer;transition:background .15s,border-color .15s}
+.fp-board{display:flex;align-items:center;gap:8px;background:#252a33;border:1px solid #3a4049;border-radius:6px;padding:5px 8px;transition:background .15s,border-color .15s}
 .fp-board:hover{background:#2f353f;border-color:#4a525f}
+.fp-board-all{display:flex;align-items:center;gap:6px;cursor:pointer}
 .fp-board .fp-board-cb{width:14px;height:14px;accent-color:#648CFC;margin:0;flex:0 0 auto}
 .fp-board-cb:indeterminate{opacity:.8}
 .fp-board-nm{font-size:12px;font-weight:600;color:#d7dce3;white-space:nowrap}
 .fp-board-rg{font-size:11px;color:#8aa6fd;white-space:nowrap}
+.fp-board-wrong{font-size:11px;font-weight:700;line-height:1.4;color:#fca5a5;background:#2a2224;border:1px solid #5b3538;border-radius:4px;padding:2px 7px;white-space:nowrap;cursor:pointer}
+.fp-board-wrong.on{color:#fff;background:#dc2626;border-color:#dc2626}
+.fp-board-wrong:hover:not(:disabled){border-color:#dc2626}
+.fp-board-wrong:disabled{opacity:.35;cursor:default}
 .fp-pick-list{flex:1 1 auto;min-height:0;overflow-y:auto;padding:6px 8px;scrollbar-width:thin;scrollbar-color:#333a45 transparent}
 .fp-pick-list::-webkit-scrollbar{width:8px}
 .fp-pick-list::-webkit-scrollbar-thumb{background:#333a45;border-radius:4px}
@@ -1104,9 +1140,11 @@
 </div>
 <div class="fp-stat" id="fp-stat"></div>
 
-<div class="fp-btns">
+<!-- 主面板旧入口（排版并打印 / 导出为 PDF）已隐藏：导出统一改由「自选题目导出」面板底部的三平台按钮承接。
+     DOM 节点保留——run() 仍会读取 pb/sb 的 textContent，直接删节点会导致空引用崩溃。 -->
+<div class="fp-btns" style="display:none">
     <button id="fp-print" class="fp-btn">排版并打印</button>
-    <button id="fp-save" class="fp-btn2" title="导出为 PDF：浏览器会弹出打印对话框，目标选「另存为 PDF」即可保存">导出为 PDF</button>
+    <button id="fp-save" class="fp-btn2" title="排版后开窗打印，在系统面板选「存储为 PDF」即可保存（矢量文字最清晰）">导出为 PDF</button>
 </div>
 
 <div class="fp-btns" style="margin-bottom:12px">
@@ -1188,7 +1226,7 @@
 </div>
 
 <div class="fp-update" id="fp-update"></div>
-    <a class="fp-contact" id="fp-contact" href="https://www.xiaohongshu.com/user/profile/6864dfd9000000001d01781a" target="_blank" rel="noopener">联系作者</a>
+    <a class="fp-contact" id="fp-contact" href="https://www.xiaohongshu.com/user/profile/66c4370f000000001d031c0c" target="_blank" rel="noopener">联系作者</a>
 <div class="fp-foot">v${VERSION}</div>
 </div>`;
         document.body.appendChild(panel);
@@ -2054,6 +2092,16 @@
         return document.body;
     }
 
+    // ===== 做错判定（只选错题用）=====
+    // 判据来自解析页实测（skill/fenbi-dom-map.md，2026-11 快照）：选项的 div.input-radio
+    // 上挂 correct / correctLost / wrong 三种判分态。做错 = 出现 wrong（选错的项）
+    // 或 correctLost（漏选的正确答案）。未作答 / 只看答案的题只有 correct，不算做错。
+    // 只打标记、不动 DOM；做题页天然没有判分态，一律返回 false。
+    function isWrongQuestion(ti) {
+        if (!ti || !ti.querySelectorAll) return false;
+        return !!ti.querySelector('.input-radio.wrong, .input-radio.correctLost');
+    }
+
     // ---- 行测：滚动加载后直接读取 ----
     async function extractXingce(onProgress, quick) {
         onProgress && onProgress('正在加载全部题目…');
@@ -2167,6 +2215,8 @@
                     figure: picked.allImage || stemImgs >= 1,
                     // 题目节点自带的题型标识（同 catOf），无章节时作为板块识别的兜底依据
                     cat: esc(catOf(el)),
+                    // 「只选错题」判据：读解析页选项上的判分态；做题页恒为 false
+                    wrong: isWrongQuestion(el),
                     key: el.getAttribute('data-question-key') || num || String(items.length)
                 });
             }
@@ -2486,12 +2536,12 @@ p{margin:0 0 .5em}
 /* 页面左上角小字：与页脚署名同款缩小的风格，保持整卷视觉统一。 */
 .fp-pheader .fp-htitle{display:inline-block;max-width:100%;
   padding:0 2px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-/* 页脚：页码居中，署名靠左不动。署名写死，没有面板入口。 */
+/* 页脚：页码居中，试卷名靠左。试卷名即当前试卷标题，页脚与封面共用。 */
 .fp-pfooter{position:relative;flex:0 0 ${PFOOTER_H}px;height:${PFOOTER_H}px;
   line-height:${PFOOTER_H}px;text-align:center;
   font-size:10pt;color:#555;font-family:"SimSun","STSong",serif}
-/* 署名：8.5pt → 7.5pt（小两号），#9aa3b2 → #adb5c0（白底对比度 2.55:1 → 2.07:1）。
-   再小或再淡打印出来就糊了，7.5pt 是激光打印机还能稳住的下限。 */
+/* 试卷名：8.5pt → 7.5pt（小两号），#9aa3b2 → #adb5c0（白底对比度 2.55:1 → 2.07:1）。
+   再小或再淡打印出来就糊了，7.5pt 是激光打印机还能稳住的下限。长标题省略号截断。 */
 .fp-pfooter .fp-sig{position:absolute;left:0;top:0;height:100%;
   font-size:7.5pt;color:#adb5c0;letter-spacing:.5px;
   font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
@@ -2961,10 +3011,13 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
 <script>
 (function(){
   var PREVIEW = ${meta.preview ? 'true' : 'false'};
+  // 内嵌在本页结果浮层里（VIA 适配）：不自动关页、不自己唤起打印。
+  // 宿主浮层提供「打印 / 存 PDF」「关闭」按钮，打印由用户手势直接触发（iOS 要求手势同步调用）。
+  var EMBED = ${meta.embed ? 'true' : 'false'};
   var RATIO = ${opt.figScale} / 100;
   if (!(RATIO > 0 && RATIO <= 1)) RATIO = 0.65;
   // 预览模式下不自动关页面（iframe 里 window.close 本就无效，统一置 0 更稳）
-  var CD = ${meta.preview ? 0 : cd};
+  var CD = ${(meta.preview || meta.embed) ? 0 : cd};
   // 输出方式：'print' = 点「排版并打印」，'save' = 点「导出PDF」，'preview' = 调整预览（不打印）。
   // 传入而不是事后猜 —— afterprint 只告诉你对话框关了，猜不出用户在里面选的是
   // 打印机还是「另存为 PDF」。按钮是自己点的，这个意图只有面板那一侧才知道。
@@ -3252,7 +3305,8 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
   var BODY_H = ${BODY_H};
   // 切页粒度由面板的「换页方式」决定（whole / smart / ultra）
   var MODE = ${JSON.stringify(opt.pagination || 'smart')};
-  var SIG = ${JSON.stringify(opt.signature || '')};
+  // 页脚 / 封面署名：与 HEADER_TXT 同样转义 <，避免试卷名里的字符截断生成页脚本块。
+  var SIG = ${JSON.stringify(String(opt.signature || '')).replace(/</g, '\\u003C')};
   // 页眉文字（可选）。空串 = 不生成页眉节点，排版与旧版逐字节一致。
   // ★ 转义三重保险（1.8.27 曾因生成页脚本里出现字面「小于号+斜杠+script」
   //   被浏览器当场截断脚本块，整个分页逻辑没执行）：
@@ -4652,6 +4706,9 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
   window.addEventListener('focus', function(){ if (printed && !shown) showDone(); });
 
   function showDone(){
+    // 内嵌浮层模式：宿主有自己的工具条和关闭按钮，别在 iframe 里再盖一层
+    // 「打印完成 / 关闭页面」——那个按钮在 iframe 里 window.close 无效，点了没反应。
+    if (EMBED) return;
     var box = document.getElementById('fp-done');
     var btnStay = document.getElementById('fp-done-stay');
     var btnClose = document.getElementById('fp-done-close');
@@ -4741,6 +4798,106 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
         })();
     }
 
+    // 把排版结果写进「本页浮层 iframe」——VIA / WKWebView 上 window.open 的新标签
+    // 常常打开即白（异步 document.write 不落地），而页内 iframe 的 doc.write 是可靠的。
+    // 打印按钮必须由用户手势同步触发（iOS 的硬要求），所以这里直接调 frame.print，
+    // 不套 printWhenReady 的定时器。
+    function showResultInPage(html, mode) {
+        const old = $('fp-result');
+        if (old) old.remove();
+        // 导航栏按来源平台定制：用户从自选题目面板点了哪个平台按钮（pc / ipad / android），
+        // 结果页就只留那个平台真正要用的按钮 + 一条醒目的操作提示，不再摆一堆用不上的按钮。
+        // 主面板「排版并打印 / 导出为 PDF」（mode=print/save）走兜底，still 显示打印按钮。
+        const ov = document.createElement('div');
+        ov.id = 'fp-result';
+        ov.className = 'show';
+        // 每个平台：一句醒目提示（大字高亮）+ 只保留该平台对应的那一个按钮。
+        let platHint, actionBtn;
+        if (mode === 'ipad') {
+            platHint = '第一步 点右边「纯净预览」→ 第二步 用 VIA 工具箱「保存页面」存成 PDF';
+            actionBtn = '<button type="button" class="fp-btn" id="fp-rs-clean">纯净预览（VIA 存 PDF）</button>';
+        } else if (mode === 'android') {
+            platHint = '第一步 首次在 VIA 定制菜单把「打印 PDF」拖出来 → 第二步 点右边「打印 / 存 PDF」→ 第三步 在 VIA 菜单选「打印 PDF」保存';
+            actionBtn = '<button type="button" class="fp-btn" id="fp-rs-print">打印 / 存 PDF</button>';
+        } else if (mode === 'pc') {
+            platHint = '第一步 点右边「打印 / 存 PDF」→ 第二步 在系统面板选「存储为 PDF」（矢量最清晰）';
+            actionBtn = '<button type="button" class="fp-btn" id="fp-rs-print">打印 / 存 PDF</button>';
+        } else {
+            platHint = '第一步 点「打印 / 存 PDF」→ 第二步 在面板里选「存储为 PDF」（矢量文字最清晰）';
+            actionBtn = '<button type="button" class="fp-btn" id="fp-rs-print">打印 / 存 PDF</button>';
+        }
+        ov.innerHTML =
+            '<div id="fp-result-bar">'
+            + '<span class="fp-rs-t">✨ 排版结果</span>'
+            + '<span class="fp-rs-h">' + platHint + '</span>'
+            + '<span class="fp-rs-sp"></span>'
+            + actionBtn
+            + '<button type="button" class="fp-btn2" id="fp-rs-close">关闭</button>'
+            + '</div>'
+            + '<iframe id="fp-result-frame" title="排版结果"></iframe>';
+        document.body.appendChild(ov);
+        const frame = ov.querySelector('#fp-result-frame');
+        const doc = frame.contentDocument;
+        if (!doc) {
+            ov.remove();
+            alert('无法在本页显示排版结果，请刷新后重试。');
+            return;
+        }
+        doc.open();
+        doc.write(html);
+        doc.close();
+        const close = () => { ov.remove(); };
+        ov.querySelector('#fp-rs-close').addEventListener('click', close);
+        ov.addEventListener('fp-result-close', close);
+        // 打印 / 存 PDF：开独立窗口只放排版结果再打印。
+        // ⚠️ 不能打 iframe：安卓 WebView（VIA 等）对 iframe.contentWindow.print()
+        // 的实现有缺陷——它会把整个父页面一起打进去。父页面正是深色结果浮层
+        // （#0f1216 背景 + 顶部深色工具条），于是第一页是卷子、后面全是黑页
+        // 加一个导航栏（就是那条工具条）。独立窗口里只有排版 HTML，分页由脚本
+        // 自身的 @page/A4 样式控制，三端一致、不会再有黑页。
+        // window.open 在用户手势里同步调用；打印交给 printWhenReady 等排版定稿
+        // （图片解码、切页完成）后再触发，避免打出空白/未分页的半成品。
+        const printBtn = ov.querySelector('#fp-rs-print');
+        if (printBtn) printBtn.addEventListener('click', () => {
+            let win = null;
+            try { win = window.open('', '_blank'); } catch (e) {}
+            if (!win) {
+                alert('打印窗口被拦截，请允许本页弹出窗口后重试。');
+                return;
+            }
+            try {
+                win.document.open();
+                win.document.write(html);
+                win.document.close();
+                printWhenReady(win);
+            } catch (e) {
+                alert('打开打印窗口失败：' + e.message);
+            }
+        });
+        // 纯净预览：VIA（iPad）的「保存页面为 PDF」是整页截图式保存，会把脚本
+        // 顶部那条深色工具条一起拍进去。点这里先把整条工具条藏掉，浮层背景转白，
+        // 页面上只剩卷子，再用 VIA 菜单「保存页面为 PDF」存出的就是干净的 PDF。
+        // 退出：双击卷子，或等提示条（几秒后自动消失，不会被拍进 PDF）。
+        const cleanBtn = ov.querySelector('#fp-rs-clean');
+        if (cleanBtn) cleanBtn.addEventListener('click', () => {
+            ov.classList.add('clean');
+            const tip = document.createElement('div');
+            tip.className = 'fp-clean-tip';
+            tip.textContent = '已进入纯净预览：现在用 VIA 菜单「保存页面为 PDF」即可存出无导航栏的卷子。双击卷子可退出（本提示几秒后自动消失）。';
+            document.body.appendChild(tip);
+            setTimeout(() => { tip.style.opacity = '0'; }, 4200);
+            setTimeout(() => { if (tip.parentNode) tip.parentNode.removeChild(tip); }, 4700);
+            const exitClean = () => {
+                ov.classList.remove('clean');
+                if (tip.parentNode) tip.parentNode.removeChild(tip);
+                try { (frame.contentDocument || doc).removeEventListener('dblclick', exitClean); } catch (e) {}
+            };
+            setTimeout(() => {
+                try { (frame.contentDocument || doc).addEventListener('dblclick', exitClean); } catch (e) {}
+            }, 300);
+        });
+    }
+
     /* ==================================================================
      * 八、主流程
      * ================================================================ */
@@ -4816,6 +4973,7 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
             mode: isShenlun ? 'shenlun' : 'xingce',
             output: mode,
             questionCount,
+            embed: true,
         });
         const matCount = items.filter((i) => i.kind === 'material').length;
         setStatus(`共 <b>${questionCount}</b> 题${matCount ? `，<b>${matCount}</b> 份材料` : ''}`);
@@ -4856,19 +5014,8 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
 
         try {
             const { html, opt, title } = await generate(mode);
-            const win = window.open('', '_blank');
-            if (!win) {
-                hideMask();
-                alert('浏览器拦截了弹窗。\n请允许本站弹出窗口后重试。');
-                return;
-            }
-            win.document.write(html);
-            win.document.close();
             hideMask();
-            // 「导出 PDF」与「排版并打印」走同一条路：浏览器「打印」是唯一能保真出 PDF 的路径，
-            // 对话框里目标选「另存为 PDF」即存成文件，选真实打印机则直接打印到纸。
-            // 「排版并打印」尊重面板的「生成后自动唤起打印」开关；「导出 PDF」强制唤起。
-            if (mode === 'save' || opt.autoPrint) printWhenReady(win);
+            showResultInPage(html, mode);
         } catch (e) {
             hideMask();
             if (e && e.message !== 'no question') {
@@ -4896,6 +5043,7 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
             output: output,
             questionCount: state.questionCount,
             preview: !!preview,
+            embed: true,
         });
     }
 
@@ -5077,13 +5225,9 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
         renderPreview(state);
     }
 
-    // 预览里点「打印 / 导出PDF」：复用已解析的 items，直接出新版窗口打印，无需重新爬页
+    // 预览里点「打印 / 导出PDF」：复用已解析的 items，改在本页结果浮层显示，无需弹新标签
     function printFromPreview(state, mode) {
-        const win = window.open('', '_blank');
-        if (!win) { alert('浏览器拦截了弹窗。\n请允许本站弹出窗口后重试。'); return; }
-        win.document.write(buildPreviewHtml(state, mode, false));
-        win.document.close();
-        printWhenReady(win);   // 用户主动点打印/导出，必定唤起打印对话框
+        showResultInPage(buildPreviewHtml(state, mode, false), mode);
     }
 
     // 把预览里调好的参数写回面板并持久化，再关掉预览
@@ -5383,6 +5527,7 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
                 i,
                 seq: qs.length + 1,
                 num: it.num == null ? '' : String(it.num),
+                wrong: !!it.wrong,
                 text: stemSummary(it.stemHtml, 68),
             });
         });
@@ -5391,31 +5536,43 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
         const coverEl = $('fp-cover');
         const coverDef = coverEl ? !!coverEl.checked : true;
 
+        // 板块区：板块与题号区间全部由 items 现算（申论不显示；识别不到时只给提示、不影响其余功能）
+        // 需在 rows 之前算好，才能给每道错题标注所属板块
+        const boards = detectBoards(state, qs);
+        const cbAt = new Map();                     // items 下标 → 勾选列表中的位置
+        qs.forEach((one, k) => cbAt.set(one.i, k));
+        const boardOf = new Map();                  // items 下标 → 板块名
+        boards.forEach((b) => (b.idxs || []).forEach((i) => boardOf.set(i, b.name)));
+        qs.forEach((one) => { one.board = boardOf.get(one.i) || ''; });
+        const wrongSet = new Set(qs.filter((x) => x.wrong).map((x) => x.i));
+
         const rows = qs.map((q) => (
             '<label class="fp-pick-item">'
             + '<input type="checkbox" class="fp-pick-cb" data-i="' + q.i + '" checked>'
             + '<span class="fp-pick-seq">' + q.seq + '</span>'
             + (q.num ? '<span class="fp-pick-no">原题号 ' + esc(q.num) + '</span>' : '')
+            + (q.wrong ? '<span class="fp-wrong-badge" title="解析页判为做错">错</span>' : '')
+            + (q.wrong && q.board ? '<span class="fp-wrong-board" title="所属板块">' + esc(q.board) + '</span>' : '')
             + '<span class="fp-pick-txt">' + esc(q.text) + '</span>'
             + '</label>'
         )).join('');
 
-        // 板块区：板块与题号区间全部由 items 现算（申论不显示；识别不到时只给提示、不影响其余功能）
-        const boards = detectBoards(state, qs);
-        const cbAt = new Map();                     // items 下标 → 勾选列表中的位置
-        qs.forEach((one, k) => cbAt.set(one.i, k));
         const boardHtml = boards.length
-            ? '<div class="fp-boards" data-fp="boards"><span class="fp-boards-tt">板块</span>'
-              + boards.map((b, k) => (
-                  '<label class="fp-board" title="点击即勾选 / 取消该板块（' + b.lo + '-' + b.hi + '）的全部题目">'
-                  + '<input type="checkbox" class="fp-board-cb" data-b="' + k + '" checked>'
-                  + '<span class="fp-board-nm">' + esc(b.name) + '</span>'
-                  + '<span class="fp-board-rg">' + b.lo + '-' + b.hi + '</span>'
-                  + '</label>'
-              )).join('')
+            ? '<div class="fp-boards" data-fp="boards"><span class="fp-boards-tt">板块</span><span class="fp-boards-legend" title="勾=该板块全部题目已选；横杠=只选了其中一部分；空=一道都没选。点板块名可整块勾选或取消">☑全选 ⊟部分 ☐未选</span>'
+              + boards.map((b, k) => {
+                  const wCnt = (b.idxs || []).filter((i) => wrongSet.has(i)).length;
+                  return '<div class="fp-board">'
+                    + '<label class="fp-board-all" title="' + b.lo + '-' + b.hi + ' 题：勾=全选，横杠=部分已选，空=未选；点击整块勾选/取消">'
+                    + '<input type="checkbox" class="fp-board-cb" data-b="' + k + '" checked>'
+                    + '<span class="fp-board-nm">' + esc(b.name) + '</span>'
+                    + '<span class="fp-board-rg">' + b.lo + '-' + b.hi + '</span>'
+                    + '</label>'
+                    + (wCnt ? '<button type="button" class="fp-board-wrong" data-bw="' + k + '" title="只切换本板块的 ' + wCnt + ' 道错题，可与其它板块叠加">错题 ' + wCnt + '</button>' : '')
+                    + '</div>';
+              }).join('')
               + '</div>'
             : (state.isShenlun ? ''
-                : '<div class="fp-boards" data-fp="boards"><span class="fp-boards-tt">板块</span>'
+                : '<div class="fp-boards" data-fp="boards"><span class="fp-boards-tt">板块</span><span class="fp-boards-legend" title="勾=该板块全部题目已选；横杠=只选了其中一部分；空=一道都没选。点板块名可整块勾选或取消">☑全选 ⊟部分 ☐未选</span>'
                   + '<span class="fp-boards-hint">未识别到板块，请用范围框勾选</span></div>');
 
         const ov = document.createElement('div');
@@ -5425,11 +5582,13 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
             '<div class="fp-pick-box">'
             + '<div class="fp-pick-head"><div class="fp-pick-brand"><span class="fp-emoji">✨</span><span>自选题目导出</span></div>'
             + '<span class="fp-pick-x" data-fp="x" title="关闭">×</span></div>'
+            + '<div class="fp-pick-credit">排版功能由 <b>火焰百合</b> 提供<br>自选题目导出功能由 <b>粉笔脚本君</b> 提供</div>'
             + '<div class="fp-pick-bar">'
             + '<button type="button" class="fp-batch" data-fp="all">全选</button>'
             + '<button type="button" class="fp-batch" data-fp="none">全不选</button>'
             + '<button type="button" class="fp-batch" data-fp="inv">反选</button>'
             + '<button type="button" class="fp-batch-orange" data-fp="three">只导出三大块</button>'
+            + '<button type="button" class="fp-batch-red" data-fp="wrong" title="只勾选解析页判为做错的题；做题页没有判分态，不会命中">只选错题</button>'
             + '<input type="text" class="fp-input fp-pick-range" data-fp="range" placeholder="或输入题号范围，如 1-10,15,20-25">'
             + '<button type="button" class="fp-batch" data-fp="apply">按范围勾选</button>'
             + '<span class="fp-pick-cnt" data-fp="cnt"></span>'
@@ -5444,9 +5603,9 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
             + '</div>'
             + '<div class="fp-pick-hint">范围写法支持 <b>1-10,15,20-25</b>；按<b>列表序号</b>勾选，原题号为纯数字时也会一并匹配</div>'
             + '<div class="fp-pick-btns">'
-            + '<button type="button" class="fp-btn2" data-fp="cancel">取消</button>'
-            + '<button type="button" class="fp-btn2" data-fp="save">导出为 PDF</button>'
-            + '<button type="button" class="fp-btn" data-fp="print">排版并打印</button>'
+            + '<button type="button" class="fp-btn" data-fp="pc" title="电脑：排版后点「打印 / 存 PDF」，在系统面板选「存储为 PDF」">🖥 电脑打印</button>'
+            + '<button type="button" class="fp-btn" data-fp="ipad" title="iPad VIA：排版后用工具箱里的「保存页面」存为 PDF">📱 iPad · VIA</button>'
+            + '<button type="button" class="fp-btn" data-fp="android" title="安卓 VIA：排版后用菜单栏里的「打印 PDF」保存；需先在定制菜单里把「打印 PDF」拖出来">🤖 安卓平板 · VIA</button>'
             + '</div></div></div>';
         document.body.appendChild(ov);
 
@@ -5460,7 +5619,7 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
             let n = 0;
             cbs.forEach((c) => { if (c.checked) n++; });
             cnt.textContent = '已选 ' + n + ' / ' + cbs.length + ' 题';
-            // 板块状态由旗下题目反推：全勾 = 勾上，全不勾 = 取消，部分勾 = 半选
+            // 板块状态三态：全勾=打勾，部分勾=横杠，全不勾=空框
             boardEls.forEach((el, k) => {
                 const list = boardCbs[k];
                 let m = 0;
@@ -5468,10 +5627,17 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
                 el.checked = list.length > 0 && m === list.length;
                 el.indeterminate = m > 0 && m < list.length;
             });
+            // 板块「错题」开关的高亮：该板块的错题已全部勾选时点亮
+            ov.querySelectorAll('.fp-board-wrong').forEach((btn) => {
+                const b = boards[parseInt(btn.getAttribute('data-bw'), 10)];
+                if (!b || !b.idxs) return;
+                const wcbs = b.idxs.map((i) => wrongSet.has(i) ? cbs[cbAt.get(i)] : null).filter(Boolean);
+                btn.classList.toggle('on', wcbs.length > 0 && wcbs.every((c) => c.checked));
+            });
         };
         const setAll = (v) => { cbs.forEach((c) => { c.checked = v; }); refresh(); };
 
-        // 点板块 → 整块勾选 / 取消（半选状态点击后按浏览器默认变为全选）
+        // 点板块 → 整块勾选 / 取消
         boardEls.forEach((el, k) => {
             el.addEventListener('change', () => {
                 const v = el.checked;
@@ -5508,10 +5674,36 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
             });
             refresh();
         });
+        // 只选错题：勾选题目里被判为做错的（解析页判分态；做题页恒 0，给明确提示）
+        q('wrong').addEventListener('click', () => {
+            const wrongIdx = qs.filter((one) => one.wrong).map((one) => one.i);
+            if (!wrongIdx.length) {
+                alert('当前页没有识别到做错的题。\n请确认这是「解析 / 复盘」页且题目已判分；做题页本身没有对错标记。');
+                return;
+            }
+            setAll(false);
+            wrongIdx.forEach((i) => {
+                const c = cbs[cbAt.get(i)];
+                if (c) c.checked = true;
+            });
+            refresh();
+        });
+        // 板块「错题 N」开关：只切换本板块内的错题，可与其它板块/手动勾选叠加，不动其它题
+        ov.querySelectorAll('.fp-board-wrong').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const b = boards[parseInt(btn.getAttribute('data-bw'), 10)];
+                if (!b || !b.idxs) return;
+                const wrongCbs = b.idxs.map((i) => wrongSet.has(i) ? cbs[cbAt.get(i)] : null).filter(Boolean);
+                if (!wrongCbs.length) return;
+                const allOn = wrongCbs.every((c) => c.checked);
+                wrongCbs.forEach((c) => { c.checked = !allOn; });
+                refresh();
+            });
+        });
         q('x').addEventListener('click', closePicker);
-        q('cancel').addEventListener('click', closePicker);
-        q('print').addEventListener('click', () => confirmPick(state, qs, cbs, 'print'));
-        q('save').addEventListener('click', () => confirmPick(state, qs, cbs, 'save'));
+        q('pc').addEventListener('click', () => confirmPick(state, qs, cbs, 'pc'));
+        q('ipad').addEventListener('click', () => confirmPick(state, qs, cbs, 'ipad'));
+        q('android').addEventListener('click', () => confirmPick(state, qs, cbs, 'android'));
 
         refresh();
         pickState = state;
@@ -5554,16 +5746,12 @@ body.pag-whole .fp-mat{break-inside:avoid;page-break-inside:avoid}
             mode: state.isShenlun ? 'shenlun' : 'xingce',
             output: mode,
             questionCount,
+            embed: true,
         });
-        const win = window.open('', '_blank');
-        if (!win) { alert('浏览器拦截了弹窗。\n请允许本站弹出窗口后重试。'); return; }
-        win.document.write(html);
-        win.document.close();
         const matCount = items.filter((i) => i.kind === 'material').length;
         setStatus('已选 <b>' + questionCount + '</b> 题' + (matCount ? '，<b>' + matCount + '</b> 份材料' : ''));
         closePicker();
-        // 「导出 PDF」强制唤起打印对话框；「排版并打印」尊重面板「生成后自动唤起打印」
-        if (mode === 'save' || opt.autoPrint) printWhenReady(win);
+        showResultInPage(html, mode);
     }
 
     /* ==================================================================
